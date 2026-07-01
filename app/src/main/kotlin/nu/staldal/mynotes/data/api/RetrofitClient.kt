@@ -36,6 +36,7 @@ object RetrofitClient {
                 if (BuildConfig.DEBUG) {
                     addInterceptor(HttpLoggingInterceptor().apply {
                         level = HttpLoggingInterceptor.Level.BODY
+                        redactHeader("Authorization")
                     })
                 }
             }
