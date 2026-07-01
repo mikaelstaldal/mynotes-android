@@ -196,7 +196,8 @@ private fun NoteListItem(note: NoteEntity, onClick: () -> Unit) {
             )
         }
         Text(
-            text = NoteDateUtils.formatDisplayDateTime(note.updatedAt),
+            text = "created ${NoteDateUtils.formatDisplayDateTime(note.createdAt)} · " +
+                "updated ${NoteDateUtils.formatDisplayDateTime(note.updatedAt)} · v${note.version}",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

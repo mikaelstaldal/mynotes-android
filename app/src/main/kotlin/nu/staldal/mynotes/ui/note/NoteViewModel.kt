@@ -19,7 +19,9 @@ data class NoteDetailState(
     val slug: String? = null,
     val title: String = "",
     val content: String = "",
+    val createdAt: String = "",
     val updatedAt: String = "",
+    val version: Int = 0,
     val isLoading: Boolean = false,
     val isDeleting: Boolean = false,
     val isDeleted: Boolean = false,
@@ -77,7 +79,9 @@ class NoteViewModel(application: Application) : AndroidViewModel(application) {
                             slug = note.slug,
                             title = note.title,
                             content = note.content,
+                            createdAt = note.createdAt,
                             updatedAt = note.updatedAt,
+                            version = note.version,
                             isLoading = false,
                         )
                     }

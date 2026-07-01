@@ -103,7 +103,8 @@ fun NoteDetailScreen(
                 ) {
                     Text(state.title, style = MaterialTheme.typography.headlineSmall)
                     Text(
-                        "Updated ${NoteDateUtils.formatDisplayDateTime(state.updatedAt)}",
+                        "created ${NoteDateUtils.formatDisplayDateTime(state.createdAt)} · " +
+                            "updated ${NoteDateUtils.formatDisplayDateTime(state.updatedAt)} · v${state.version}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
