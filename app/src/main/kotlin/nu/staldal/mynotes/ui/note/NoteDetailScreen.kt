@@ -1,7 +1,7 @@
 package nu.staldal.mynotes.ui.note
 
 import android.content.Intent
-import androidx.compose.foundation.Image
+import android.graphics.BitmapFactory
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -15,10 +15,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.mikepenz.markdown.m3.Markdown
+import com.mikepenz.markdown.model.ImageData
+import com.mikepenz.markdown.model.ImageTransformer
+import nu.staldal.mynotes.data.ArtifactRepository
 import nu.staldal.mynotes.util.NoteDateUtils
 import java.io.File
 
@@ -96,12 +101,14 @@ fun NoteDetailScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     HorizontalDivider()
-                    Text(state.content, style = MaterialTheme.typography.bodyMedium)
-
-                    val imageRefs = remember(state.content) { viewModel.artifactRepository.extractImageRefs(state.content) }
-                    imageRefs.forEach { ref ->
-                        NoteImageThumbnail(ref = ref, viewModel = viewModel)
+                    val imageTransformer = remember(viewModel.artifactRepository) {
+                        ArtifactImageTransformer(viewModel.artifactRepository)
                     }
+                    Markdown(
+                        content = state.content,
+                        imageTransformer = imageTransformer,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
             }
         }
@@ -124,20 +131,20 @@ fun NoteDetailScreen(
     }
 }
 
-@Composable
-private fun NoteImageThumbnail(ref: String, viewModel: NoteViewModel) {
-    val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(initialValue = null, ref) {
-        val bytes = viewModel.artifactRepository.resolveImageBytes(ref)
-        value = bytes?.let {
-            android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap()
+/** Resolves Markdown image links to inline images via [ArtifactRepository], which handles both
+ * local-artifact:// placeholders and authenticated remote artifact fetches. */
+private class ArtifactImageTransformer(
+    private val artifactRepository: ArtifactRepository,
+) : ImageTransformer {
+    @Composable
+    override fun transform(link: String): ImageData? {
+        val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(initialValue = null, link) {
+            val bytes = artifactRepository.resolveImageBytes(link)
+            value = bytes?.let {
+                BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap()
+            }
         }
-    }
-    bitmap?.let {
-        Image(
-            bitmap = it,
-            contentDescription = null,
-            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        )
+        return bitmap?.let { ImageData(painter = BitmapPainter(it)) }
     }
 }
 

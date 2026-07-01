@@ -113,8 +113,4 @@ class ArtifactRepository(
         if (!response.isSuccessful) return null
         return response.body()?.bytes()
     }
-
-    /** Extracts all image reference URLs (Markdown `![alt](ref)` syntax) from note content. */
-    fun extractImageRefs(content: String): List<String> =
-        Regex("!\\[[^\\]]*]\\(([^)]+)\\)").findAll(content).map { it.groupValues[1] }.toList()
 }
