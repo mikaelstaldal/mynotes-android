@@ -1,0 +1,23 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Note page body -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M32,24 L76,24 Q78,24 78,26 L78,82 Q78,84 76,84 L32,84 Q30,84 30,82 L30,26 Q30,24 32,24 Z" />
+
+    <!-- Folded corner -->
+    <path
+        android:fillColor="#DDDDDD"
+        android:pathData="M66,24 L78,36 L68,36 Q66,36 66,34 Z" />
+
+    <!-- Text lines -->
+    <path android:fillColor="#777777" android:pathData="M38,44 h32 v3 h-32 z" />
+    <path android:fillColor="#777777" android:pathData="M38,52 h32 v3 h-32 z" />
+    <path android:fillColor="#777777" android:pathData="M38,60 h32 v3 h-32 z" />
+    <path android:fillColor="#777777" android:pathData="M38,68 h20 v3 h-20 z" />
+
+</vector>
