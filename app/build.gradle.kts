@@ -134,7 +134,11 @@ dependencies {
     ksp(libs.androidx.room.compiler)
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.security.crypto)
-    implementation(libs.markdown.renderer.m3)
+    implementation(libs.commonmark)
+    implementation(libs.commonmark.ext.gfm.tables)
+    implementation(libs.commonmark.ext.gfm.strikethrough)
+    implementation(libs.commonmark.ext.autolink)
+    implementation(libs.owasp.html.sanitizer)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

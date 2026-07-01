@@ -2,12 +2,19 @@ package nu.staldal.mynotes.data
 
 import android.content.Context
 import android.net.Uri
+import android.util.Base64
 import nu.staldal.mynotes.data.api.DefaultApi
 import nu.staldal.mynotes.data.api.FileRequestBodyConverterFactory
 import nu.staldal.mynotes.data.local.AppDatabase
 import nu.staldal.mynotes.data.local.ArtifactEntity
 import java.io.File
 import java.util.UUID
+
+/** An image reference resolved to its raw bytes and content type. */
+data class ResolvedImage(val bytes: ByteArray, val contentType: String)
+
+/** Matches an `<img src="...">` attribute, capturing the URL for resolution. */
+private val IMG_SRC_ATTR = Regex("""(<img\b[^>]*?\ssrc=")([^"]*)(")""")
 
 val ALLOWED_ARTIFACT_CONTENT_TYPES = setOf(
     "image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml", "application/mathml+xml"
@@ -97,20 +104,48 @@ class ArtifactRepository(
 
     /**
      * Resolves an image reference found in note content (local placeholder or remote artifact
-     * URL) to raw bytes.
-     *
-     * NOTE: assumes the generated `getArtifact` returns `Response<ResponseBody>` (raw binary,
-     * multiple possible content types) — verify against the generated DefaultApi once built with
-     * network access.
+     * URL) to its raw bytes and content type.
      */
-    suspend fun resolveImageBytes(ref: String): ByteArray? {
+    suspend fun resolveImage(ref: String): ResolvedImage? {
         LOCAL_ARTIFACT_REF.find(ref)?.let { match ->
-            return localFileFor(match.groupValues[1])?.readBytes()
+            val localId = match.groupValues[1]
+            val artifact = artifactDao.getByLocalId(localId) ?: return null
+            val bytes = localFileFor(localId)?.readBytes() ?: return null
+            return ResolvedImage(bytes, artifact.contentType)
         }
         val sha256 = Regex("/api/v1/artifacts/([0-9a-f]{64})").find(ref)?.groupValues?.get(1) ?: return null
         val api = apiProvider() ?: return null
         val response = api.getArtifact(sha256)
         if (!response.isSuccessful) return null
-        return response.body()?.bytes()
+        val body = response.body() ?: return null
+        val contentType = body.contentType()?.toString() ?: "application/octet-stream"
+        return ResolvedImage(body.bytes(), contentType)
+    }
+
+    /**
+     * Rewrites every `<img src="...">` in sanitized note HTML (local-artifact:// placeholder or
+     * remote artifact URL) to a `data:` URI carrying the resolved bytes, so the WebView never
+     * needs network access or app credentials to display an image. An image that fails to
+     * resolve (e.g. offline and not yet cached) is left as-is and renders as a broken image.
+     */
+    suspend fun rewriteImageSrcToDataUris(html: String): String {
+        val matches = IMG_SRC_ATTR.findAll(html).toList()
+        if (matches.isEmpty()) return html
+        val sb = StringBuilder()
+        var lastEnd = 0
+        for (match in matches) {
+            val (prefix, src, suffix) = match.destructured
+            sb.append(html, lastEnd, match.range.first)
+            val resolved = resolveImage(src)
+            if (resolved != null) {
+                val base64 = Base64.encodeToString(resolved.bytes, Base64.NO_WRAP)
+                sb.append(prefix).append("data:${resolved.contentType};base64,$base64").append(suffix)
+            } else {
+                sb.append(match.value)
+            }
+            lastEnd = match.range.last + 1
+        }
+        sb.append(html, lastEnd, html.length)
+        return sb.toString()
     }
 }

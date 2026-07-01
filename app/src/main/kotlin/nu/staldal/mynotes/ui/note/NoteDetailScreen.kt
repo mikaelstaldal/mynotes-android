@@ -1,10 +1,10 @@
 package nu.staldal.mynotes.ui.note
 
 import android.content.Intent
-import android.graphics.BitmapFactory
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
@@ -14,17 +14,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.mikepenz.markdown.m3.Markdown
-import com.mikepenz.markdown.model.ImageData
-import com.mikepenz.markdown.model.ImageTransformer
-import nu.staldal.mynotes.data.ArtifactRepository
 import nu.staldal.mynotes.util.NoteDateUtils
+import nu.staldal.mynotes.util.NoteHtmlRenderer
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -37,6 +35,7 @@ fun NoteDetailScreen(
 ) {
     val state by viewModel.detailState.collectAsState()
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var renderedHtml by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(slug) {
         viewModel.loadNote(slug)
@@ -44,6 +43,15 @@ fun NoteDetailScreen(
 
     LaunchedEffect(state.isDeleted) {
         if (state.isDeleted) onNavigateBack()
+    }
+
+    val colorScheme = MaterialTheme.colorScheme
+    LaunchedEffect(state.slug, state.content) {
+        if (state.slug != null) {
+            val sanitizedBody = NoteHtmlRenderer.renderToSanitizedHtml(state.content)
+            val withImages = viewModel.artifactRepository.rewriteImageSrcToDataUris(sanitizedBody)
+            renderedHtml = wrapHtmlDocument(withImages, colorScheme.background, colorScheme.onBackground, colorScheme.primary)
+        }
     }
 
     Scaffold(
@@ -90,8 +98,7 @@ fun NoteDetailScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(padding)
-                        .padding(16.dp)
-                        .verticalScroll(rememberScrollState()),
+                        .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text(state.title, style = MaterialTheme.typography.headlineSmall)
@@ -101,14 +108,26 @@ fun NoteDetailScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     HorizontalDivider()
-                    val imageTransformer = remember(viewModel.artifactRepository) {
-                        ArtifactImageTransformer(viewModel.artifactRepository)
+                    val html = renderedHtml
+                    if (html == null) {
+                        Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
+                    } else {
+                        AndroidView(
+                            modifier = Modifier.fillMaxSize().weight(1f),
+                            factory = { ctx ->
+                                WebView(ctx).apply {
+                                    settings.javaScriptEnabled = false
+                                    settings.allowFileAccess = false
+                                    settings.allowContentAccess = false
+                                    webViewClient = ExternalNavigationWebViewClient()
+                                }
+                            },
+                            update = { webView -> webView.loadDataWithBaseURL(null, html, "text/html", "utf-8", null) },
+                            onRelease = { it.destroy() },
+                        )
                     }
-                    Markdown(
-                        content = state.content,
-                        imageTransformer = imageTransformer,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
                 }
             }
         }
@@ -131,22 +150,51 @@ fun NoteDetailScreen(
     }
 }
 
-/** Resolves Markdown image links to inline images via [ArtifactRepository], which handles both
- * local-artifact:// placeholders and authenticated remote artifact fetches. */
-private class ArtifactImageTransformer(
-    private val artifactRepository: ArtifactRepository,
-) : ImageTransformer {
-    @Composable
-    override fun transform(link: String): ImageData? {
-        val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(initialValue = null, link) {
-            val bytes = artifactRepository.resolveImageBytes(link)
-            value = bytes?.let {
-                BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap()
-            }
+/**
+ * Sends http(s)/mailto navigations (e.g. a tapped link) to an external app instead of loading
+ * them in-place — the WebView only ever hosts the note's own rendered content. Any other scheme
+ * is blocked outright.
+ */
+private class ExternalNavigationWebViewClient : WebViewClient() {
+    override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+        val uri = request.url
+        when (uri.scheme?.lowercase()) {
+            "http", "https" -> view.context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+            "mailto" -> view.context.startActivity(Intent(Intent.ACTION_SENDTO, uri))
         }
-        return bitmap?.let { ImageData(painter = BitmapPainter(it)) }
+        return true
     }
 }
+
+private fun Color.toCssHex(): String = String.format("#%06X", 0xFFFFFF and toArgb())
+
+/**
+ * Wraps a sanitized HTML body fragment into a complete document, styled to match the app's
+ * Material theme. Script execution is already disabled via WebSettings; the CSP below is
+ * defense-in-depth, and restricts images to already-resolved data: URIs so the WebView never
+ * makes its own (unauthenticated) network requests.
+ */
+private fun wrapHtmlDocument(bodyHtml: String, background: Color, onBackground: Color, linkColor: Color): String = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline';">
+    <style>
+      body { margin: 0; padding: 0; font-family: sans-serif; background: ${background.toCssHex()}; color: ${onBackground.toCssHex()}; line-height: 1.4; }
+      a { color: ${linkColor.toCssHex()}; }
+      img, svg { max-width: 100%; height: auto; }
+      pre, code { white-space: pre-wrap; word-break: break-word; }
+      table { border-collapse: collapse; }
+      th, td { border: 1px solid ${onBackground.toCssHex()}; padding: 4px 8px; }
+    </style>
+    </head>
+    <body>
+    $bodyHtml
+    </body>
+    </html>
+""".trimIndent()
 
 private fun shareNoteAsMarkdown(context: android.content.Context, title: String, content: String) {
     val sharedDir = File(context.cacheDir, "shared").apply { mkdirs() }
