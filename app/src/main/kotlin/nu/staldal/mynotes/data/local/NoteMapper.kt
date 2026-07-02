@@ -3,7 +3,10 @@ package nu.staldal.mynotes.data.local
 import nu.staldal.mynotes.data.api.CreateNoteRequest
 import nu.staldal.mynotes.data.api.Note
 import nu.staldal.mynotes.data.api.NoteSummary
+import nu.staldal.mynotes.data.api.Tag
 import nu.staldal.mynotes.data.api.UpdateNoteRequest
+
+fun Tag.toEntity(): TagEntity = TagEntity(slug = slug, name = name)
 
 fun Note.toEntity(hasFullContent: Boolean = true): NoteEntity = NoteEntity(
     slug = slug,
@@ -14,6 +17,7 @@ fun Note.toEntity(hasFullContent: Boolean = true): NoteEntity = NoteEntity(
     updatedAt = updatedAt,
     version = version,
     hasFullContent = hasFullContent,
+    tags = tags.map { it.toEntity() },
 )
 
 /**
@@ -30,6 +34,7 @@ fun NoteSummary.toEntity(): NoteEntity = NoteEntity(
     updatedAt = updatedAt,
     version = version,
     hasFullContent = false,
+    tags = tags.map { it.toEntity() },
 )
 
 fun NoteEntity.mergeContentFrom(existing: NoteEntity?): NoteEntity =
@@ -43,9 +48,11 @@ fun NoteEntity.toCreateRequest(): CreateNoteRequest = CreateNoteRequest(
     title = title,
     content = content,
     slug = slug,
+    tags = tags.map { it.slug },
 )
 
 fun NoteEntity.toUpdateRequest(): UpdateNoteRequest = UpdateNoteRequest(
     title = title,
     content = content,
+    tags = tags.map { it.slug },
 )

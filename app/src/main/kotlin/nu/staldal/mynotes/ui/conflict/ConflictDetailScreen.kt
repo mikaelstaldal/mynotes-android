@@ -11,6 +11,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import nu.staldal.mynotes.data.local.TagEntity
 import nu.staldal.mynotes.util.NoteDateUtils
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -63,6 +64,7 @@ fun ConflictDetailScreen(
                 heading = "Your local edit",
                 title = conflict.localTitle,
                 content = conflict.localContent,
+                tags = conflict.localTags,
                 onKeep = { viewModel.resolve(slug, keepLocal = true); onNavigateBack() },
                 keepLabel = "Keep mine",
             )
@@ -71,6 +73,7 @@ fun ConflictDetailScreen(
                 heading = "Server version (updated ${NoteDateUtils.formatDisplayDateTime(conflict.serverUpdatedAt)})",
                 title = conflict.serverTitle,
                 content = conflict.serverContent,
+                tags = conflict.serverTags,
                 onKeep = { viewModel.resolve(slug, keepLocal = false); onNavigateBack() },
                 keepLabel = "Keep server",
             )
@@ -83,6 +86,7 @@ private fun ConflictSideCard(
     heading: String,
     title: String,
     content: String,
+    tags: List<TagEntity>,
     keepLabel: String,
     onKeep: () -> Unit,
 ) {
@@ -90,6 +94,13 @@ private fun ConflictSideCard(
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(heading, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(title, style = MaterialTheme.typography.titleMedium)
+            if (tags.isNotEmpty()) {
+                Text(
+                    tags.joinToString(", ") { it.name },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Text(content, style = MaterialTheme.typography.bodyMedium, maxLines = 8)
             Button(onClick = onKeep, modifier = Modifier.fillMaxWidth()) { Text(keepLabel) }
         }

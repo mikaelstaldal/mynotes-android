@@ -3,8 +3,11 @@ package nu.staldal.mynotes.ui.note
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -13,6 +16,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import nu.staldal.mynotes.data.local.TagEntity
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -24,6 +28,7 @@ fun NoteFormScreen(
     val state by viewModel.formState.collectAsState()
     val context = LocalContext.current
     var contentField by remember { mutableStateOf(TextFieldValue("")) }
+    var showNewTagDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(slug) {
         viewModel.loadNoteForEdit(slug)
@@ -92,6 +97,12 @@ fun NoteFormScreen(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
+            TagPickerRow(
+                availableTags = state.availableTags,
+                selectedTags = state.tags,
+                onToggle = { viewModel.toggleFormTag(it) },
+                onAddNew = { showNewTagDialog = true },
+            )
             OutlinedTextField(
                 value = contentField,
                 onValueChange = {
@@ -105,5 +116,59 @@ fun NoteFormScreen(
                 Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
         }
+
+        if (showNewTagDialog) {
+            NewTagDialog(
+                onDismiss = { showNewTagDialog = false },
+                onCreate = { name -> viewModel.createAndAttachTag(name); showNewTagDialog = false },
+            )
+        }
     }
+}
+
+@Composable
+private fun TagPickerRow(
+    availableTags: List<TagEntity>,
+    selectedTags: List<TagEntity>,
+    onToggle: (TagEntity) -> Unit,
+    onAddNew: () -> Unit,
+) {
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        items(availableTags) { tag ->
+            val selected = selectedTags.any { it.slug == tag.slug }
+            FilterChip(selected = selected, onClick = { onToggle(tag) }, label = { Text(tag.name) })
+        }
+        item {
+            AssistChip(
+                onClick = onAddNew,
+                label = { Text("New tag") },
+                leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) },
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun NewTagDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit) {
+    var name by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("New Tag") },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("Name") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { onCreate(name) }, enabled = name.isNotBlank()) { Text("Create") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
 }

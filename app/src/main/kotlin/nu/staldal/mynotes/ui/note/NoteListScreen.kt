@@ -1,8 +1,11 @@
 package nu.staldal.mynotes.ui.note
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -21,6 +24,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import nu.staldal.mynotes.data.local.NoteEntity
+import nu.staldal.mynotes.data.local.TagEntity
 import nu.staldal.mynotes.util.NoteDateUtils
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -127,6 +131,8 @@ fun NoteListScreen(
             }
         },
     ) { padding ->
+        var tagPendingDelete by remember { mutableStateOf<TagEntity?>(null) }
+
         Column(modifier = Modifier.padding(padding)) {
             if (!state.isOfflineMode && !state.isOnline) {
                 Surface(color = MaterialTheme.colorScheme.errorContainer, modifier = Modifier.fillMaxWidth()) {
@@ -139,32 +145,97 @@ fun NoteListScreen(
                 }
             }
 
+            if (state.availableTags.isNotEmpty()) {
+                TagFilterRow(
+                    tags = state.availableTags,
+                    selectedTag = state.selectedTag,
+                    onTagClick = { viewModel.selectTag(it) },
+                    onTagLongClick = { tagPendingDelete = it },
+                )
+            }
+
             if (showSearch && state.searchQuery.isNotBlank()) {
+                val results = state.searchResults.filterByTag(state.selectedTag)
                 if (state.isSearching) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
                     }
-                } else if (state.searchResults.isEmpty()) {
+                } else if (results.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text("No results found")
                     }
                 } else {
                     LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        items(state.searchResults) { note ->
+                        items(results) { note ->
                             NoteListItem(note = note, onClick = { onNavigateToNote(note.slug) })
                         }
                     }
                 }
-            } else if (state.notes.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("No notes yet — tap + to create one", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
             } else {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(state.notes) { note ->
-                        NoteListItem(note = note, onClick = { onNavigateToNote(note.slug) })
+                val notes = state.notes.filterByTag(state.selectedTag)
+                if (notes.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            if (state.selectedTag == null) "No notes yet — tap + to create one" else "No notes with this tag",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                } else {
+                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        items(notes) { note ->
+                            NoteListItem(note = note, onClick = { onNavigateToNote(note.slug) })
+                        }
                     }
                 }
+            }
+        }
+
+        tagPendingDelete?.let { tag ->
+            AlertDialog(
+                onDismissRequest = { tagPendingDelete = null },
+                title = { Text("Delete Tag") },
+                text = { Text("Delete tag \"${tag.name}\"? It will be removed from every note.") },
+                confirmButton = {
+                    TextButton(onClick = { viewModel.deleteTag(tag.slug); tagPendingDelete = null }) {
+                        Text("Delete", color = MaterialTheme.colorScheme.error)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { tagPendingDelete = null }) { Text("Cancel") }
+                },
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun TagFilterRow(
+    tags: List<TagEntity>,
+    selectedTag: String?,
+    onTagClick: (String) -> Unit,
+    onTagLongClick: (TagEntity) -> Unit,
+) {
+    LazyRow(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        items(tags) { tag ->
+            val selected = tag.slug == selectedTag
+            Surface(
+                shape = MaterialTheme.shapes.small,
+                color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier.combinedClickable(
+                    onClick = { onTagClick(tag.slug) },
+                    onLongClick = { onTagLongClick(tag) },
+                ),
+            ) {
+                Text(
+                    text = tag.name,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                )
             }
         }
     }
@@ -194,6 +265,20 @@ private fun NoteListItem(note: NoteEntity, onClick: () -> Unit) {
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
+        }
+        if (note.tags.isNotEmpty()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                note.tags.forEach { tag ->
+                    Surface(shape = MaterialTheme.shapes.extraSmall, color = MaterialTheme.colorScheme.surfaceVariant) {
+                        Text(
+                            text = tag.name,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                        )
+                    }
+                }
+            }
         }
         Text(
             text = "created ${NoteDateUtils.formatDisplayDateTime(note.createdAt)} · " +

@@ -9,6 +9,7 @@ import nu.staldal.mynotes.data.ALLOWED_ARTIFACT_CONTENT_TYPES
 import nu.staldal.mynotes.data.ArtifactRepository
 import nu.staldal.mynotes.data.NoteRepository
 import nu.staldal.mynotes.data.api.RetrofitClient
+import nu.staldal.mynotes.data.local.TagEntity
 import nu.staldal.mynotes.data.preferences.ServerConfig
 import nu.staldal.mynotes.data.preferences.UserPreferences
 import nu.staldal.mynotes.data.sync.SyncWorker
@@ -22,6 +23,7 @@ data class NoteDetailState(
     val createdAt: String = "",
     val updatedAt: String = "",
     val version: Int = 0,
+    val tags: List<TagEntity> = emptyList(),
     val isLoading: Boolean = false,
     val isDeleting: Boolean = false,
     val isDeleted: Boolean = false,
@@ -32,6 +34,8 @@ data class NoteFormState(
     val slug: String? = null,
     val title: String = "",
     val content: String = "",
+    val tags: List<TagEntity> = emptyList(),
+    val availableTags: List<TagEntity> = emptyList(),
     val isLoading: Boolean = false,
     val isSaving: Boolean = false,
     val isSaved: Boolean = false,
@@ -65,6 +69,11 @@ class NoteViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             prefs.serverConfig.collect { serverConfig = it }
         }
+        viewModelScope.launch {
+            repository.observeTags().collect { tags ->
+                _formState.update { it.copy(availableTags = tags) }
+            }
+        }
     }
 
     fun loadNote(slug: String) {
@@ -82,6 +91,7 @@ class NoteViewModel(application: Application) : AndroidViewModel(application) {
                             createdAt = note.createdAt,
                             updatedAt = note.updatedAt,
                             version = note.version,
+                            tags = note.tags,
                             isLoading = false,
                         )
                     }
@@ -109,7 +119,7 @@ class NoteViewModel(application: Application) : AndroidViewModel(application) {
 
     fun loadNoteForEdit(slug: String?) {
         if (slug == null) {
-            _formState.update { NoteFormState() }
+            _formState.update { NoteFormState(availableTags = it.availableTags) }
             return
         }
         viewModelScope.launch {
@@ -118,7 +128,7 @@ class NoteViewModel(application: Application) : AndroidViewModel(application) {
                 val note = repository.getNote(slug)
                 if (note != null) {
                     _formState.update {
-                        it.copy(slug = note.slug, title = note.title, content = note.content, isLoading = false)
+                        it.copy(slug = note.slug, title = note.title, content = note.content, tags = note.tags, isLoading = false)
                     }
                 } else {
                     _formState.update { it.copy(isLoading = false, error = "Note not found") }
@@ -131,6 +141,30 @@ class NoteViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateFormTitle(value: String) { _formState.update { it.copy(title = value) } }
     fun updateFormContent(value: String) { _formState.update { it.copy(content = value) } }
+
+    fun toggleFormTag(tag: TagEntity) {
+        _formState.update {
+            val tags = if (it.tags.any { t -> t.slug == tag.slug }) {
+                it.tags.filterNot { t -> t.slug == tag.slug }
+            } else {
+                it.tags + tag
+            }
+            it.copy(tags = tags)
+        }
+    }
+
+    /** Creates a new tag on the server and attaches it to the note being edited. Requires connectivity. */
+    fun createAndAttachTag(name: String) {
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            try {
+                val tag = repository.createTag(name)
+                _formState.update { it.copy(tags = it.tags + tag) }
+            } catch (e: Exception) {
+                _formState.update { it.copy(error = "Could not create tag: ${e.message}") }
+            }
+        }
+    }
 
     fun insertImagePlaceholder(uri: Uri, contentType: String, onInserted: (String) -> Unit) {
         if (contentType !in ALLOWED_ARTIFACT_CONTENT_TYPES) {
@@ -158,9 +192,9 @@ class NoteViewModel(application: Application) : AndroidViewModel(application) {
             _formState.update { it.copy(isSaving = true, error = null) }
             try {
                 if (form.slug == null) {
-                    repository.createNote(form.title, form.content)
+                    repository.createNote(form.title, form.content, form.tags)
                 } else {
-                    repository.updateNote(form.slug, form.title, form.content)
+                    repository.updateNote(form.slug, form.title, form.content, form.tags)
                 }
                 _formState.update { it.copy(isSaving = false, isSaved = true) }
                 SyncWorker.enqueueOneTime(getApplication())

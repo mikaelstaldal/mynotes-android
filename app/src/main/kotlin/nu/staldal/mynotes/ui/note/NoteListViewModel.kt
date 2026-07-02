@@ -9,6 +9,7 @@ import nu.staldal.mynotes.data.ConnectivityObserver
 import nu.staldal.mynotes.data.NoteRepository
 import nu.staldal.mynotes.data.api.RetrofitClient
 import nu.staldal.mynotes.data.local.NoteEntity
+import nu.staldal.mynotes.data.local.TagEntity
 import nu.staldal.mynotes.data.preferences.ServerConfig
 import nu.staldal.mynotes.data.preferences.UserPreferences
 import nu.staldal.mynotes.data.sync.SyncWorker
@@ -27,9 +28,14 @@ data class NoteListUiState(
     val searchQuery: String = "",
     val isSearching: Boolean = false,
     val searchResults: List<NoteEntity> = emptyList(),
+    val availableTags: List<TagEntity> = emptyList(),
+    val selectedTag: String? = null,
     val error: String? = null,
     val syncMessage: String? = null,
 )
+
+fun List<NoteEntity>.filterByTag(tag: String?): List<NoteEntity> =
+    if (tag == null) this else filter { note -> note.tags.any { it.slug == tag } }
 
 class NoteListViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = UserPreferences(application)
@@ -82,6 +88,12 @@ class NoteListViewModel(application: Application) : AndroidViewModel(application
         }
 
         viewModelScope.launch {
+            repository.observeTags().collect { tags ->
+                _uiState.update { it.copy(availableTags = tags) }
+            }
+        }
+
+        viewModelScope.launch {
             prefs.serverConfig.collect { config ->
                 serverConfig = config
                 _uiState.update { it.copy(isConfigured = config.isConfigured, isOfflineMode = config.offlineMode) }
@@ -98,6 +110,7 @@ class NoteListViewModel(application: Application) : AndroidViewModel(application
             _uiState.update { it.copy(isLoading = true, error = null) }
             try {
                 repository.refreshNotes()
+                repository.refreshTags()
                 _uiState.update { it.copy(isLoading = false) }
             } catch (e: Exception) {
                 _uiState.update { it.copy(isLoading = false, error = e.message) }
@@ -112,11 +125,27 @@ class NoteListViewModel(application: Application) : AndroidViewModel(application
             try {
                 val notifications = repository.syncPendingChanges()
                 repository.refreshNotes()
+                repository.refreshTags()
                 _uiState.update {
                     it.copy(isLoading = false, syncMessage = notifications.firstOrNull() ?: "Synced")
                 }
             } catch (e: Exception) {
                 _uiState.update { it.copy(isLoading = false, error = e.message) }
+            }
+        }
+    }
+
+    fun selectTag(slug: String?) {
+        _uiState.update { it.copy(selectedTag = if (it.selectedTag == slug) null else slug) }
+    }
+
+    fun deleteTag(slug: String) {
+        viewModelScope.launch {
+            try {
+                repository.deleteTag(slug)
+                if (_uiState.value.selectedTag == slug) _uiState.update { it.copy(selectedTag = null) }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(error = e.message) }
             }
         }
     }

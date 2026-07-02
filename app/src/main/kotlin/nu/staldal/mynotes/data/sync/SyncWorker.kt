@@ -38,6 +38,7 @@ class SyncWorker(
             val notifications = repository.syncPendingChanges()
             notifications.forEach { Log.i(LOGTAG, it) }
             repository.refreshNotes()
+            repository.refreshTags()
             Result.success()
         } catch (e: Exception) {
             Log.w(LOGTAG, "Sync failed, will retry: $e")

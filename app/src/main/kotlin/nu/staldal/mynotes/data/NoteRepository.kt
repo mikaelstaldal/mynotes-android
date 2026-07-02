@@ -1,6 +1,7 @@
 package nu.staldal.mynotes.data
 
 import android.util.Log
+import nu.staldal.mynotes.data.api.CreateTagRequest
 import nu.staldal.mynotes.data.api.DefaultApi
 import nu.staldal.mynotes.data.api.Note
 import nu.staldal.mynotes.data.local.AppDatabase
@@ -9,6 +10,7 @@ import nu.staldal.mynotes.data.local.ConflictEntity
 import nu.staldal.mynotes.data.local.NoteEntity
 import nu.staldal.mynotes.data.local.PendingChange
 import nu.staldal.mynotes.data.local.PendingChangeStatus
+import nu.staldal.mynotes.data.local.TagEntity
 import nu.staldal.mynotes.data.local.mergeContentFrom
 import nu.staldal.mynotes.data.local.toCreateRequest
 import nu.staldal.mynotes.data.local.toEntity
@@ -31,6 +33,7 @@ class NoteRepository(
     private val noteDao = database.noteDao()
     private val pendingChangeDao = database.pendingChangeDao()
     private val conflictDao = database.conflictDao()
+    private val tagDao = database.tagDao()
 
     // --- Read surface -------------------------------------------------
 
@@ -45,6 +48,42 @@ class NoteRepository(
     fun getConflictCount(): Flow<Int> = pendingChangeDao.getConflictCount()
 
     fun observeConflicts(): Flow<List<ConflictEntity>> = conflictDao.observeAll()
+
+    // --- Tags -----------------------------------------------------------
+
+    fun observeTags(): Flow<List<TagEntity>> = tagDao.observeAll()
+
+    /** Refreshes the local tag cache from the server. There is no offline queue for tags. */
+    suspend fun refreshTags() {
+        val api = apiProvider() ?: return
+        val response = api.listTags()
+        if (!response.isSuccessful) throw Exception("Unable to list tags: ${response.code()}")
+        tagDao.replaceAll(response.body()!!.tags.map { TagEntity(slug = it.slug, name = it.name) })
+    }
+
+    /** Creates a tag on the server and caches it locally. Requires connectivity. */
+    suspend fun createTag(name: String): TagEntity {
+        val api = apiProvider() ?: throw IllegalStateException("Not configured / offline")
+        val response = api.createTag(CreateTagRequest(name = name))
+        if (!response.isSuccessful) throw Exception("Unable to create tag: ${response.code()} ${response.message()}")
+        val created = response.body()!!
+        val entity = TagEntity(slug = created.slug, name = created.name)
+        tagDao.upsertAll(listOf(entity))
+        return entity
+    }
+
+    /** Deletes a tag on the server and detaches it locally from every cached note. Requires connectivity. */
+    suspend fun deleteTag(slug: String) {
+        val api = apiProvider() ?: throw IllegalStateException("Not configured / offline")
+        val response = api.deleteTag(slug)
+        if (!response.isSuccessful && response.code() != 404) {
+            throw Exception("Unable to delete tag: ${response.code()} ${response.message()}")
+        }
+        tagDao.deleteBySlug(slug)
+        noteDao.getAllOnce()
+            .filter { note -> note.tags.any { it.slug == slug } }
+            .forEach { note -> noteDao.upsert(note.copy(tags = note.tags.filterNot { it.slug == slug })) }
+    }
 
     /** Ensures the cached note has full content, fetching it from the server if only a summary was cached. */
     suspend fun ensureFullContent(slug: String) {
@@ -76,7 +115,7 @@ class NoteRepository(
 
     // --- Mutations (write local + queue) -------------------------------
 
-    suspend fun createNote(title: String, content: String): String {
+    suspend fun createNote(title: String, content: String, tags: List<TagEntity> = emptyList()): String {
         val existingSlugs = noteDao.getSlugVersionIndex().map { it.slug }.toSet()
         var slug = SlugGenerator.slugify(title)
         var suffix = 2
@@ -96,17 +135,19 @@ class NoteRepository(
                 updatedAt = now,
                 version = 0,
                 hasFullContent = true,
+                tags = tags,
             )
         )
         pendingChangeDao.insert(PendingChange(slug = slug, changeType = ChangeType.CREATE, baseVersion = 0))
         return slug
     }
 
-    suspend fun updateNote(slug: String, title: String?, content: String?) {
+    suspend fun updateNote(slug: String, title: String?, content: String?, tags: List<TagEntity>? = null) {
         val existing = noteDao.getBySlug(slug) ?: return
         val updated = existing.copy(
             title = title ?: existing.title,
             content = content ?: existing.content,
+            tags = tags ?: existing.tags,
             updatedAt = NoteDateUtils.nowRfc3339(),
         )
         noteDao.upsert(updated)
@@ -269,9 +310,11 @@ class NoteRepository(
                         slug = change.slug,
                         localTitle = entity.title,
                         localContent = rewrittenContent,
+                        localTags = entity.tags,
                         localBaseVersion = change.baseVersion,
                         serverTitle = server.title,
                         serverContent = server.content,
+                        serverTags = server.tags.map { it.toEntity() },
                         serverVersion = serverVersion,
                         serverUpdatedAt = server.updatedAt,
                     )
@@ -300,7 +343,14 @@ class NoteRepository(
         if (keepLocal) {
             val existing = noteDao.getBySlug(slug)
             if (existing != null) {
-                noteDao.upsert(existing.copy(title = conflict.localTitle, content = conflict.localContent, version = conflict.serverVersion))
+                noteDao.upsert(
+                    existing.copy(
+                        title = conflict.localTitle,
+                        content = conflict.localContent,
+                        tags = conflict.localTags,
+                        version = conflict.serverVersion,
+                    )
+                )
             }
             if (conflictChange != null) pendingChangeDao.delete(conflictChange)
             pendingChangeDao.insert(
@@ -317,6 +367,7 @@ class NoteRepository(
                     updatedAt = conflict.serverUpdatedAt,
                     version = conflict.serverVersion,
                     hasFullContent = true,
+                    tags = conflict.serverTags,
                 )
             )
             if (conflictChange != null) pendingChangeDao.delete(conflictChange)
