@@ -118,7 +118,8 @@ class ArtifactRepository(
         val response = api.getArtifact(sha256)
         if (!response.isSuccessful) return null
         val body = response.body() ?: return null
-        val contentType = body.contentType()?.toString() ?: "application/octet-stream"
+        val contentType = body.contentType()?.toString() ?: return null
+        if (contentType !in ALLOWED_ARTIFACT_CONTENT_TYPES) return null
         return ResolvedImage(body.bytes(), contentType)
     }
 
