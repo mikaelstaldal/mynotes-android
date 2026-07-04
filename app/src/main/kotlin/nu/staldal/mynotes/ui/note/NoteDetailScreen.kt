@@ -212,8 +212,11 @@ private fun wrapHtmlDocument(bodyHtml: String, background: Color, onBackground: 
 """.trimIndent()
 
 private fun shareNoteAsMarkdown(context: android.content.Context, title: String, content: String) {
-    val sharedDir = File(context.cacheDir, "shared").apply { mkdirs() }
-    val file = File(sharedDir, "note.md")
+    val sharedDir = File(context.cacheDir, "shared")
+    // Drop any previously shared note so old content (and its FileProvider grant) can't linger.
+    sharedDir.deleteRecursively()
+    // Write each share to a fresh random subdirectory so a stale grant can't be replayed against a newer note.
+    val file = File(sharedDir, "${java.util.UUID.randomUUID()}/note.md").apply { parentFile?.mkdirs() }
     file.writeText(content)
     val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
     val intent = Intent(Intent.ACTION_SEND).apply {
