@@ -44,4 +44,12 @@ class UserPreferences(private val context: Context) {
             prefs[OFFLINE_MODE] = enabled
         }
     }
+
+    /** Wipes stored credentials and resets all app preferences to their defaults. */
+    suspend fun clearAll() {
+        credentialStore.clear()
+        context.dataStore.edit { prefs ->
+            prefs.clear()
+        }
+    }
 }

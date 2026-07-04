@@ -66,6 +66,14 @@ class SyncWorker(
                 .enqueueUniqueWork(ONE_TIME_WORK_NAME, ExistingWorkPolicy.REPLACE, request)
         }
 
+        /** Cancels any scheduled or running sync work, e.g. after the user signs out. */
+        fun cancelAll(context: Context) {
+            WorkManager.getInstance(context).apply {
+                cancelUniqueWork(ONE_TIME_WORK_NAME)
+                cancelUniqueWork(PERIODIC_WORK_NAME)
+            }
+        }
+
         fun enqueuePeriodic(context: Context) {
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)

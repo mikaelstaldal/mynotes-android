@@ -3,10 +3,15 @@ package nu.staldal.mynotes.ui.settings
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import nu.staldal.mynotes.MyNotesApplication
 import nu.staldal.mynotes.data.api.RetrofitClient
 import nu.staldal.mynotes.data.preferences.UserPreferences
+import nu.staldal.mynotes.data.sync.SyncWorker
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 
 data class SettingsUiState(
     val baseUrl: String = "",
@@ -15,10 +20,12 @@ data class SettingsUiState(
     val testResult: String? = null,
     val isSaving: Boolean = false,
     val isTesting: Boolean = false,
+    val isSigningOut: Boolean = false,
 )
 
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = UserPreferences(application)
+    private val database = (application as MyNotesApplication).database
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
@@ -43,6 +50,27 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             prefs.saveServerConfig(state.baseUrl, state.username, state.password)
             _uiState.update { it.copy(isSaving = false) }
             onSaved()
+        }
+    }
+
+    /**
+     * Signs out and wipes all local state: cancels background sync, clears stored credentials and
+     * preferences, empties the Room database, and deletes the cached artifact and share files.
+     */
+    fun signOut(onSignedOut: () -> Unit) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSigningOut = true) }
+            val app = getApplication<Application>()
+            SyncWorker.cancelAll(app)
+            prefs.clearAll()
+            withContext(Dispatchers.IO) {
+                database.clearAllTables()
+                File(app.filesDir, "artifacts").deleteRecursively()
+                File(app.cacheDir, "shared").deleteRecursively()
+            }
+            RetrofitClient.reset()
+            _uiState.value = SettingsUiState()
+            onSignedOut()
         }
     }
 

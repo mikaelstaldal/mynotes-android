@@ -55,4 +55,12 @@ object RetrofitClient {
         currentPassword = password
         return apiService
     }
+
+    /** Discards the cached client and credentials so the next call rebuilds from scratch. */
+    fun reset() {
+        apiService = null
+        currentBaseUrl = null
+        currentUsername = null
+        currentPassword = null
+    }
 }

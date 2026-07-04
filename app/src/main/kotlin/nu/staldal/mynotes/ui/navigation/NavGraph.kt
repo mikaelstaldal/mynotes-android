@@ -79,6 +79,7 @@ fun NavGraph() {
             SettingsScreen(
                 onNavigateBack = { navController.popBackStack() },
                 onSaved = { navController.popBackStack() },
+                onSignedOut = { navController.popBackStack() },
             )
         }
     }
