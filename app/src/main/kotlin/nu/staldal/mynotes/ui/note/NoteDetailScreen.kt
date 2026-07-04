@@ -1,9 +1,11 @@
 package nu.staldal.mynotes.ui.note
 
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -173,9 +175,17 @@ fun NoteDetailScreen(
 private class ExternalNavigationWebViewClient : WebViewClient() {
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
         val uri = request.url
-        when (uri.scheme?.lowercase()) {
-            "http", "https" -> view.context.startActivity(Intent(Intent.ACTION_VIEW, uri))
-            "mailto" -> view.context.startActivity(Intent(Intent.ACTION_SENDTO, uri))
+        val intent = when (uri.scheme?.lowercase()) {
+            "http", "https" -> Intent(Intent.ACTION_VIEW, uri)
+            "mailto" -> Intent(Intent.ACTION_SENDTO, uri)
+            else -> return true
+        }
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val context = view.context
+        try {
+            context.startActivity(intent)
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(context, "No app found to open this link: $uri", Toast.LENGTH_SHORT).show()
         }
         return true
     }
