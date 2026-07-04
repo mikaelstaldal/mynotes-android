@@ -9,6 +9,14 @@
         <exclude domain="root" path="."/>
     </cloud-backup>
     <device-transfer>
+        <!--
+           Transfer all app data to the new device, EXCEPT the encrypted
+           credential store. Its master key lives in the AndroidKeyStore, which
+           never leaves the device, so a copied secret_shared_prefs.xml would be
+           undecryptable on the target (AEADBadTagException). Excluding it means
+           a migrated install degrades to "please log in again" instead.
+        -->
         <include domain="root" path="."/>
+        <exclude domain="sharedpref" path="secret_shared_prefs.xml"/>
     </device-transfer>
 </data-extraction-rules>
