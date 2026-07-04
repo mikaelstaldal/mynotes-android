@@ -3,6 +3,7 @@ package nu.staldal.mynotes.data.sync
 import android.content.Context
 import android.util.Log
 import androidx.work.*
+import nu.staldal.mynotes.BuildConfig
 import nu.staldal.mynotes.data.ArtifactRepository
 import nu.staldal.mynotes.data.NoteRepository
 import nu.staldal.mynotes.data.api.RetrofitClient
@@ -36,7 +37,7 @@ class SyncWorker(
 
         return try {
             val notifications = repository.syncPendingChanges()
-            notifications.forEach { Log.i(LOGTAG, it) }
+            if (BuildConfig.DEBUG) notifications.forEach { Log.i(LOGTAG, it) }
             repository.refreshNotes()
             repository.refreshTags()
             Result.success()
