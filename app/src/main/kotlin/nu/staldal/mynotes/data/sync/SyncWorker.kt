@@ -40,6 +40,7 @@ class SyncWorker(
             if (BuildConfig.DEBUG) notifications.forEach { Log.i(LOGTAG, it) }
             repository.refreshNotes()
             repository.refreshTags()
+            repository.collectOrphanedArtifacts()
             Result.success()
         } catch (e: Exception) {
             Log.w(LOGTAG, "Sync failed, will retry: $e")

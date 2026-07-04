@@ -163,6 +163,8 @@ class NoteRepository(
 
     suspend fun deleteNote(slug: String) {
         val existing = noteDao.getBySlug(slug) ?: return
+        // Drop the note's locally cached images; they outlive the note otherwise.
+        artifactRepository.deleteArtifactsForNote(slug)
         if (existing.version == 0) {
             // Never synced — nothing to tell the server.
             pendingChangeDao.deleteBySlug(slug)
@@ -245,6 +247,18 @@ class NoteRepository(
             }
         }
         return notifications
+    }
+
+    /**
+     * Deletes cached artifact files/rows that no longer appear in any locally cached note's content
+     * and have already been uploaded. Run at the end of a sync pass to reclaim disk and avoid
+     * retaining private image data past the notes that referenced it.
+     */
+    suspend fun collectOrphanedArtifacts() {
+        val referenced = noteDao.getAllOnce()
+            .flatMap { note -> LOCAL_ARTIFACT_REF.findAll(note.content).map { it.groupValues[1] } }
+            .toSet()
+        artifactRepository.deleteOrphanedArtifacts(referenced)
     }
 
     private suspend fun syncCreate(api: DefaultApi, change: PendingChange, notifications: MutableList<String>) {

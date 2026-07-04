@@ -97,6 +97,32 @@ class ArtifactRepository(
         return rewritten
     }
 
+    /** Deletes an artifact's cached file (if present) and its row. */
+    private suspend fun deleteArtifact(artifact: ArtifactEntity) {
+        File(artifact.localFilePath).delete()
+        artifactDao.delete(artifact)
+    }
+
+    /**
+     * Removes cached artifact files/rows that are no longer referenced by [referencedLocalIds] and
+     * whose upload has completed. Artifacts still pending upload are retained so an offline-attached
+     * image is never lost before it reaches the server. Intended to run after a sync pass.
+     */
+    suspend fun deleteOrphanedArtifacts(referencedLocalIds: Set<String>) {
+        for (artifact in artifactDao.getAll()) {
+            if (artifact.uploadPending) continue
+            if (artifact.localId in referencedLocalIds) continue
+            deleteArtifact(artifact)
+        }
+    }
+
+    /** Deletes every cached artifact file/row owned by [ownerSlug]. Called when the owning note is deleted. */
+    suspend fun deleteArtifactsForNote(ownerSlug: String) {
+        for (artifact in artifactDao.getByOwnerSlug(ownerSlug)) {
+            deleteArtifact(artifact)
+        }
+    }
+
     fun localFileFor(localId: String): File? {
         val path = File(context.filesDir, "artifacts/$localId")
         return path.takeIf { it.exists() }
