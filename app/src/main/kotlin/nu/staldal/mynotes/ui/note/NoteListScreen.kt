@@ -98,7 +98,16 @@ fun NoteListScreen(
                 )
             } else {
                 TopAppBar(
-                    title = { Text("Notes") },
+                    title = {
+                        Text(
+                            "Notes",
+                            modifier = if (state.selectedTag != null) {
+                                Modifier.clickable { viewModel.selectTag(null) }
+                            } else {
+                                Modifier
+                            },
+                        )
+                    },
                     actions = {
                         IconButton(onClick = { showSearch = true }) {
                             Icon(Icons.Default.Search, contentDescription = "Search")
