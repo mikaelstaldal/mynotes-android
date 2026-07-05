@@ -17,6 +17,7 @@
            a migrated install degrades to "please log in again" instead.
         -->
         <include domain="root" path="."/>
+        <include domain="sharedpref" path="."/>
         <exclude domain="sharedpref" path="secret_shared_prefs.xml"/>
     </device-transfer>
 </data-extraction-rules>
