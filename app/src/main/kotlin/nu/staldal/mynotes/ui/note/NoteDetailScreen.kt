@@ -33,6 +33,8 @@ fun NoteDetailScreen(
     slug: String,
     onNavigateBack: () -> Unit,
     onNavigateToEdit: (String) -> Unit,
+    onNavigateToNote: (String) -> Unit,
+    onNavigateToTag: (String) -> Unit,
     viewModel: NoteViewModel = viewModel(),
 ) {
     val state by viewModel.detailState.collectAsState()
@@ -138,7 +140,7 @@ fun NoteDetailScreen(
                                     settings.javaScriptEnabled = false
                                     settings.allowFileAccess = false
                                     settings.allowContentAccess = false
-                                    webViewClient = ExternalNavigationWebViewClient()
+                                    webViewClient = ExternalNavigationWebViewClient(onNavigateToNote, onNavigateToTag)
                                 }
                             },
                             update = { webView -> webView.loadDataWithBaseURL(null, html, "text/html", "utf-8", null) },
@@ -168,13 +170,26 @@ fun NoteDetailScreen(
 }
 
 /**
- * Sends http(s)/mailto navigations (e.g. a tapped link) to an external app instead of loading
- * them in-place — the WebView only ever hosts the note's own rendered content. Any other scheme
- * is blocked outright.
+ * Routes taps inside the rendered note. Internal wikilinks (the app-only `mynotes://note/<slug>` and
+ * `mynotes://tag/<slug>` synthesized by WikiLinkProcessor) navigate within the app; http(s)/mailto
+ * links open in an external app instead of loading in-place — the WebView only ever hosts the note's
+ * own rendered content. Any other scheme is blocked outright.
  */
-private class ExternalNavigationWebViewClient : WebViewClient() {
+private class ExternalNavigationWebViewClient(
+    private val onNavigateToNote: (String) -> Unit,
+    private val onNavigateToTag: (String) -> Unit,
+) : WebViewClient() {
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
         val uri = request.url
+        if (uri.scheme?.lowercase() == "mynotes") {
+            uri.lastPathSegment?.let { slug ->
+                when (uri.host) {
+                    "note" -> onNavigateToNote(slug)
+                    "tag" -> onNavigateToTag(slug)
+                }
+            }
+            return true
+        }
         val intent = when (uri.scheme?.lowercase()) {
             "http", "https" -> Intent(Intent.ACTION_VIEW, uri)
             "mailto" -> Intent(Intent.ACTION_SENDTO, uri)

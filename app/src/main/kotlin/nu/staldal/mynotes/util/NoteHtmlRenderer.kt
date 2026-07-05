@@ -27,7 +27,10 @@ object NoteHtmlRenderer {
         StrikethroughExtension.create(),
         AutolinkExtension.create(),
     )
-    private val parser = Parser.builder().extensions(extensions).build()
+    private val parser = Parser.builder()
+        .extensions(extensions)
+        .linkProcessor(WikiLinkProcessor)
+        .build()
     private val htmlRenderer = HtmlRenderer.builder().extensions(extensions).build()
 
     fun renderToSanitizedHtml(markdown: String): String =
@@ -55,6 +58,11 @@ private val IMG_SRC_PATTERN = Pattern.compile(
     "^(https:|data:image/(gif|png|jpeg|webp);|local-artifact://|[^:/?#]*(?:[/?#]|$))",
     Pattern.CASE_INSENSITIVE,
 )
+
+// Android-only scheme (like local-artifact:// for images) carrying internal wikilinks synthesized by
+// WikiLinkProcessor. Has no server/web equivalent — the note detail WebView resolves these to in-app
+// navigation and never fetches them. Matched in full (the whole href is app-generated, not user text).
+private val INTERNAL_LINK_HREF_PATTERN = Pattern.compile("^mynotes://(note|tag)/[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 // <textpath>/<mpath> href must reference an element in the same SVG document.
 private val SVG_FRAGMENT_HREF_PATTERN = Pattern.compile("^#[\\w:.\\-]+$")
@@ -196,7 +204,12 @@ private val SANITIZER_POLICY: PolicyFactory = HtmlPolicyBuilder()
     .allowElements(*SVG_ELEMENTS)
     .allowElements(*MATHML_ELEMENTS)
     .allowAttributes(*GLOBAL_ATTRIBUTES).globally()
-    .allowAttributes("href").matching(matchingPrefix(LINK_HREF_PATTERN)).onElements("a")
+    // Allow either a DOMPurify-style external/relative href, or an app-generated mynotes:// wikilink.
+    .allowAttributes("href").matching(
+        Predicate<String> { href ->
+            LINK_HREF_PATTERN.matcher(href).find() || INTERNAL_LINK_HREF_PATTERN.matcher(href).matches()
+        },
+    ).onElements("a")
     .allowAttributes("src").matching(matchingPrefix(IMG_SRC_PATTERN)).onElements("img")
     .allowAttributes("href").matching(matchingPrefix(IMG_SRC_PATTERN)).onElements("image")
     .allowAttributes("href").matching(SVG_FRAGMENT_HREF_PATTERN).onElements("textpath", "mpath")
@@ -205,5 +218,5 @@ private val SANITIZER_POLICY: PolicyFactory = HtmlPolicyBuilder()
     // this union just has to be a superset; the tighter per-element patterns above do the real
     // scheme restriction (e.g. "data:" is allowed here but still rejected by LINK_HREF_PATTERN
     // on <a href>).
-    .allowUrlProtocols("https", "http", "mailto", "data", "local-artifact")
+    .allowUrlProtocols("https", "http", "mailto", "data", "local-artifact", "mynotes")
     .toFactory()

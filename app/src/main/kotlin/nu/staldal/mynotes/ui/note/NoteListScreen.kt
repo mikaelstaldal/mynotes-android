@@ -34,10 +34,17 @@ fun NoteListScreen(
     onNavigateToNote: (String) -> Unit,
     onNavigateToNewNote: () -> Unit,
     onNavigateToConflicts: () -> Unit,
+    initialTag: String? = null,
     viewModel: NoteListViewModel = viewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
     var showSearch by remember { mutableStateOf(false) }
+
+    // Preselect the tag when this screen was opened from a `[[#slug]]` wikilink. Runs once for this
+    // (freshly scoped) ViewModel, whose selectedTag starts null, so selectTag just sets the filter.
+    LaunchedEffect(initialTag) {
+        if (initialTag != null) viewModel.selectTag(initialTag)
+    }
 
     if (!state.isConfigured) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

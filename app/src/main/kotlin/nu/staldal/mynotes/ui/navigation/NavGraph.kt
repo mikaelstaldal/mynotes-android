@@ -18,8 +18,12 @@ fun NavGraph() {
     val navController = rememberNavController()
 
     NavHost(navController = navController, startDestination = "notes") {
-        composable("notes") {
+        composable(
+            "notes?tag={tag}",
+            arguments = listOf(navArgument("tag") { type = NavType.StringType; nullable = true; defaultValue = null }),
+        ) { backStackEntry ->
             NoteListScreen(
+                initialTag = backStackEntry.arguments?.getString("tag"),
                 onNavigateToSettings = { navController.navigate("settings") },
                 onNavigateToNote = { slug -> navController.navigate("note/$slug") },
                 onNavigateToNewNote = { navController.navigate("note/new") },
@@ -36,6 +40,8 @@ fun NavGraph() {
                 slug = slug,
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToEdit = { s -> navController.navigate("note/edit/$s") },
+                onNavigateToNote = { s -> navController.navigate("note/$s") },
+                onNavigateToTag = { s -> navController.navigate("notes?tag=$s") },
             )
         }
 
