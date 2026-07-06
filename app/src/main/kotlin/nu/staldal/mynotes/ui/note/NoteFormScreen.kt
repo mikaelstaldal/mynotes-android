@@ -187,7 +187,10 @@ private fun WikiLinkPickerDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.imePadding(),
+            ) {
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
