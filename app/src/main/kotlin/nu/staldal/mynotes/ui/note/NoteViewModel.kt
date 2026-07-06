@@ -10,6 +10,7 @@ import nu.staldal.mynotes.data.ArtifactRepository
 import nu.staldal.mynotes.data.ConnectivityObserver
 import nu.staldal.mynotes.data.NoteRepository
 import nu.staldal.mynotes.data.api.RetrofitClient
+import nu.staldal.mynotes.data.local.NoteEntity
 import nu.staldal.mynotes.data.local.TagEntity
 import nu.staldal.mynotes.data.preferences.ServerConfig
 import nu.staldal.mynotes.data.preferences.UserPreferences
@@ -37,6 +38,7 @@ data class NoteFormState(
     val content: String = "",
     val tags: List<TagEntity> = emptyList(),
     val availableTags: List<TagEntity> = emptyList(),
+    val availableNotes: List<NoteEntity> = emptyList(),
     val isLoading: Boolean = false,
     val isSaving: Boolean = false,
     val isSaved: Boolean = false,
@@ -88,6 +90,11 @@ class NoteViewModel(application: Application) : AndroidViewModel(application) {
                 _formState.update { it.copy(availableTags = tags) }
             }
         }
+        viewModelScope.launch {
+            repository.observeNotes().collect { notes ->
+                _formState.update { it.copy(availableNotes = notes) }
+            }
+        }
     }
 
     fun loadNote(slug: String) {
@@ -133,7 +140,7 @@ class NoteViewModel(application: Application) : AndroidViewModel(application) {
 
     fun loadNoteForEdit(slug: String?) {
         if (slug == null) {
-            _formState.update { NoteFormState(availableTags = it.availableTags) }
+            _formState.update { NoteFormState(availableTags = it.availableTags, availableNotes = it.availableNotes) }
             return
         }
         viewModelScope.launch {
