@@ -256,7 +256,10 @@ class NoteRepository(
      */
     suspend fun collectOrphanedArtifacts() {
         val referenced = noteDao.getAllOnce()
-            .flatMap { note -> LOCAL_ARTIFACT_REF.findAll(note.content).map { it.groupValues[1] } }
+            .flatMap { note ->
+                LOCAL_ARTIFACT_REF.findAll(note.content).map { it.groupValues[1] } +
+                    REMOTE_ARTIFACT_REF.findAll(note.content).map { it.groupValues[1] }
+            }
             .toSet()
         artifactRepository.deleteOrphanedArtifacts(referenced)
     }

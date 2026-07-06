@@ -7,6 +7,9 @@ interface ArtifactDao {
     @Query("SELECT * FROM artifacts WHERE localId = :localId")
     suspend fun getByLocalId(localId: String): ArtifactEntity?
 
+    @Query("SELECT * FROM artifacts WHERE sha256 = :sha256 LIMIT 1")
+    suspend fun getBySha256(sha256: String): ArtifactEntity?
+
     @Query("SELECT * FROM artifacts")
     suspend fun getAll(): List<ArtifactEntity>
 

@@ -3,6 +3,7 @@ package nu.staldal.mynotes.data
 import android.content.Context
 import android.net.Uri
 import android.util.Base64
+import android.util.Log
 import nu.staldal.mynotes.data.api.DefaultApi
 import nu.staldal.mynotes.data.api.FileRequestBodyConverterFactory
 import nu.staldal.mynotes.data.local.AppDatabase
@@ -23,9 +24,15 @@ val ALLOWED_ARTIFACT_CONTENT_TYPES = setOf(
 /** Regex matching the local placeholder inserted into note content for an offline-attached image. */
 val LOCAL_ARTIFACT_REF = Regex("local-artifact://([\\w-]+)")
 
+/** Regex matching a remote, content-addressed artifact URL, capturing its sha256. */
+val REMOTE_ARTIFACT_REF = Regex("/api/v1/artifacts/([0-9a-f]{64})")
+
+private const val ARTIFACT_LOGTAG = "ArtifactRepository"
+
 class ArtifactRepository(
     private val context: Context,
     database: AppDatabase,
+    private val isOnlineProvider: () -> Boolean = { true },
     private val apiProvider: () -> DefaultApi?,
 ) {
     private val artifactDao = database.artifactDao()
@@ -104,14 +111,18 @@ class ArtifactRepository(
     }
 
     /**
-     * Removes cached artifact files/rows that are no longer referenced by [referencedLocalIds] and
-     * whose upload has completed. Artifacts still pending upload are retained so an offline-attached
-     * image is never lost before it reaches the server. Intended to run after a sync pass.
+     * Removes cached artifact files/rows that are no longer referenced by [referencedIds] and whose
+     * upload has completed. [referencedIds] holds both local placeholder ids (local-artifact://) and
+     * remote artifact sha256s (from artifact URLs), so a downloaded-and-cached remote image is kept
+     * as long as some note still references it. Artifacts still pending upload are retained so an
+     * offline-attached image is never lost before it reaches the server. Intended to run after a
+     * sync pass.
      */
-    suspend fun deleteOrphanedArtifacts(referencedLocalIds: Set<String>) {
+    suspend fun deleteOrphanedArtifacts(referencedIds: Set<String>) {
         for (artifact in artifactDao.getAll()) {
             if (artifact.uploadPending) continue
-            if (artifact.localId in referencedLocalIds) continue
+            if (artifact.localId in referencedIds) continue
+            if (artifact.sha256 != null && artifact.sha256 in referencedIds) continue
             deleteArtifact(artifact)
         }
     }
@@ -131,6 +142,11 @@ class ArtifactRepository(
     /**
      * Resolves an image reference found in note content (local placeholder or remote artifact
      * URL) to its raw bytes and content type.
+     *
+     * Remote artifacts are content-addressed, so a downloaded artifact is cached to disk and served
+     * locally on subsequent views without touching the network. When the artifact isn't cached, the
+     * backend is contacted only while online, and any network failure is swallowed (the image simply
+     * fails to resolve) so an offline or unreachable server can never crash the caller.
      */
     suspend fun resolveImage(ref: String): ResolvedImage? {
         LOCAL_ARTIFACT_REF.find(ref)?.let { match ->
@@ -139,14 +155,60 @@ class ArtifactRepository(
             val bytes = localFileFor(localId)?.readBytes() ?: return null
             return ResolvedImage(bytes, artifact.contentType)
         }
-        val sha256 = Regex("/api/v1/artifacts/([0-9a-f]{64})").find(ref)?.groupValues?.get(1) ?: return null
+        val sha256 = REMOTE_ARTIFACT_REF.find(ref)?.groupValues?.get(1) ?: return null
+
+        // Serve from the local cache if we've already downloaded this content-addressed artifact
+        // (covers both previously-downloaded remote images and offline-attached images post-upload).
+        artifactDao.getBySha256(sha256)?.let { cached ->
+            File(cached.localFilePath).takeIf { it.exists() }?.readBytes()?.let { bytes ->
+                return ResolvedImage(bytes, cached.contentType)
+            }
+        }
+
+        // Not cached — only reach out to the backend when actually online.
+        if (!isOnlineProvider()) return null
         val api = apiProvider() ?: return null
-        val response = api.getArtifact(sha256)
+        val response = try {
+            api.getArtifact(sha256)
+        } catch (e: Exception) {
+            // Network failure (e.g. UnknownHostException when the server is unreachable). Render as
+            // a broken image rather than propagating the exception and crashing the note view.
+            Log.w(ARTIFACT_LOGTAG, "Failed to fetch artifact $sha256", e)
+            return null
+        }
         if (!response.isSuccessful) return null
         val body = response.body() ?: return null
         val contentType = body.contentType()?.toString() ?: return null
         if (contentType !in ALLOWED_ARTIFACT_CONTENT_TYPES) return null
-        return ResolvedImage(body.bytes(), contentType)
+        val bytes = body.bytes()
+
+        cacheRemoteArtifact(sha256, bytes, contentType)
+        return ResolvedImage(bytes, contentType)
+    }
+
+    /**
+     * Persists a downloaded remote artifact to the local cache, keyed by its sha256 (which doubles
+     * as the localId and on-disk filename). Failure to write the cache is non-fatal — the freshly
+     * fetched bytes are still returned to the caller.
+     */
+    private suspend fun cacheRemoteArtifact(sha256: String, bytes: ByteArray, contentType: String) {
+        try {
+            val artifactsDir = File(context.filesDir, "artifacts").apply { mkdirs() }
+            val destFile = File(artifactsDir, sha256)
+            destFile.writeBytes(bytes)
+            artifactDao.upsert(
+                ArtifactEntity(
+                    localId = sha256,
+                    localFilePath = destFile.absolutePath,
+                    contentType = contentType,
+                    sha256 = sha256,
+                    uploadPending = false,
+                    ownerSlug = "",
+                )
+            )
+        } catch (e: Exception) {
+            Log.w(ARTIFACT_LOGTAG, "Failed to cache artifact $sha256", e)
+        }
     }
 
     /**

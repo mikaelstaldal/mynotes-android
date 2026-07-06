@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import nu.staldal.mynotes.MyNotesApplication
 import nu.staldal.mynotes.data.ALLOWED_ARTIFACT_CONTENT_TYPES
 import nu.staldal.mynotes.data.ArtifactRepository
+import nu.staldal.mynotes.data.ConnectivityObserver
 import nu.staldal.mynotes.data.NoteRepository
 import nu.staldal.mynotes.data.api.RetrofitClient
 import nu.staldal.mynotes.data.local.TagEntity
@@ -52,9 +53,19 @@ class NoteViewModel(application: Application) : AndroidViewModel(application) {
     private val _formState = MutableStateFlow(NoteFormState())
     val formState: StateFlow<NoteFormState> = _formState.asStateFlow()
 
-    private var serverConfig = ServerConfig()
+    private val connectivityObserver = ConnectivityObserver(application)
 
-    val artifactRepository = ArtifactRepository(application, database) {
+    private var serverConfig = ServerConfig()
+    private var networkAvailable = true
+
+    /** True when the backend can actually be reached (network up and not in explicit offline mode). */
+    private fun canReachBackend(): Boolean = networkAvailable && !serverConfig.offlineMode
+
+    val artifactRepository = ArtifactRepository(
+        application,
+        database,
+        isOnlineProvider = { canReachBackend() },
+    ) {
         RetrofitClient.getApiService(serverConfig.baseUrl, serverConfig.username, serverConfig.password)
     }
 
@@ -68,6 +79,9 @@ class NoteViewModel(application: Application) : AndroidViewModel(application) {
     init {
         viewModelScope.launch {
             prefs.serverConfig.collect { serverConfig = it }
+        }
+        viewModelScope.launch {
+            connectivityObserver.isOnline.collect { networkAvailable = it }
         }
         viewModelScope.launch {
             repository.observeTags().collect { tags ->
