@@ -210,7 +210,7 @@ fun NoteListScreen(
             AlertDialog(
                 onDismissRequest = { tagPendingDelete = null },
                 title = { Text("Delete Tag") },
-                text = { Text("Delete tag \"${tag.name}\"? It will be removed from every note.") },
+                text = { Text("Delete tag \"${tag.slug}\"? It will be removed from every note.") },
                 confirmButton = {
                     TextButton(onClick = { viewModel.deleteTag(tag.slug); tagPendingDelete = null }) {
                         Text("Delete", color = MaterialTheme.colorScheme.error)
@@ -247,7 +247,7 @@ private fun TagFilterRow(
                 ),
             ) {
                 Text(
-                    text = tag.name,
+                    text = tag.slug,
                     style = MaterialTheme.typography.labelLarge,
                     color = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -287,7 +287,7 @@ private fun NoteListItem(note: NoteEntity, onClick: () -> Unit) {
                 note.tags.forEach { tag ->
                     Surface(shape = MaterialTheme.shapes.extraSmall, color = MaterialTheme.colorScheme.surfaceVariant) {
                         Text(
-                            text = tag.name,
+                            text = tag.slug,
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),

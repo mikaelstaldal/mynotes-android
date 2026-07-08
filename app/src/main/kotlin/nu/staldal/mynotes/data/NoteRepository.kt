@@ -58,16 +58,16 @@ class NoteRepository(
         val api = apiProvider() ?: return
         val response = api.listTags()
         if (!response.isSuccessful) throw Exception("Unable to list tags: ${response.code()}")
-        tagDao.replaceAll(response.body()!!.tags.map { TagEntity(slug = it.slug, name = it.name) })
+        tagDao.replaceAll(response.body()!!.tags.map { TagEntity(slug = it.slug) })
     }
 
     /** Creates a tag on the server and caches it locally. Requires connectivity. */
-    suspend fun createTag(name: String): TagEntity {
+    suspend fun createTag(slug: String): TagEntity {
         val api = apiProvider() ?: throw IllegalStateException("Not configured / offline")
-        val response = api.createTag(CreateTagRequest(name = name))
+        val response = api.createTag(CreateTagRequest(slug = slug))
         if (!response.isSuccessful) throw Exception("Unable to create tag: ${response.code()} ${response.message()}")
         val created = response.body()!!
-        val entity = TagEntity(slug = created.slug, name = created.name)
+        val entity = TagEntity(slug = created.slug)
         tagDao.upsertAll(listOf(entity))
         return entity
     }

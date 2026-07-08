@@ -6,7 +6,7 @@ import nu.staldal.mynotes.data.api.NoteSummary
 import nu.staldal.mynotes.data.api.Tag
 import nu.staldal.mynotes.data.api.UpdateNoteRequest
 
-fun Tag.toEntity(): TagEntity = TagEntity(slug = slug, name = name)
+fun Tag.toEntity(): TagEntity = TagEntity(slug = slug)
 
 fun Note.toEntity(hasFullContent: Boolean = true): NoteEntity = NoteEntity(
     slug = slug,

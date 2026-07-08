@@ -117,7 +117,7 @@ fun NoteDetailScreen(
                             state.tags.forEach { tag ->
                                 Surface(shape = MaterialTheme.shapes.extraSmall, color = MaterialTheme.colorScheme.surfaceVariant) {
                                     Text(
-                                        text = tag.name,
+                                        text = tag.slug,
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),

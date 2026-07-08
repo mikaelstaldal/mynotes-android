@@ -139,7 +139,7 @@ fun NoteFormScreen(
         if (showNewTagDialog) {
             NewTagDialog(
                 onDismiss = { showNewTagDialog = false },
-                onCreate = { name -> viewModel.createAndAttachTag(name); showNewTagDialog = false },
+                onCreate = { slug -> viewModel.createAndAttachTag(slug); showNewTagDialog = false },
             )
         }
 
@@ -157,7 +157,7 @@ fun NoteFormScreen(
         if (showTagLinkPicker) {
             WikiLinkPickerDialog(
                 title = "Link to tag",
-                options = state.availableTags.map { WikiLinkOption(slug = it.slug, label = it.name) },
+                options = state.availableTags.map { WikiLinkOption(slug = it.slug, label = it.slug) },
                 onDismiss = { showTagLinkPicker = false },
                 onSelect = { insertAtCursor("[[#${it.slug}]]"); showTagLinkPicker = false },
             )
@@ -205,7 +205,9 @@ private fun WikiLinkPickerDialog(
                         items(filtered, key = { it.slug }) { option ->
                             ListItem(
                                 headlineContent = { Text(option.label) },
-                                supportingContent = { Text(option.slug) },
+                                supportingContent = if (option.label != option.slug) {
+                                    { Text(option.slug) }
+                                } else null,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable { onSelect(option) },
@@ -232,7 +234,7 @@ private fun TagPickerRow(
     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
         items(availableTags) { tag ->
             val selected = selectedTags.any { it.slug == tag.slug }
-            FilterChip(selected = selected, onClick = { onToggle(tag) }, label = { Text(tag.name) })
+            FilterChip(selected = selected, onClick = { onToggle(tag) }, label = { Text(tag.slug) })
         }
         item {
             AssistChip(
@@ -247,21 +249,21 @@ private fun TagPickerRow(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun NewTagDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit) {
-    var name by remember { mutableStateOf("") }
+    var slug by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("New Tag") },
         text = {
             OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text("Name") },
+                value = slug,
+                onValueChange = { slug = it },
+                label = { Text("Slug") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
         },
         confirmButton = {
-            TextButton(onClick = { onCreate(name) }, enabled = name.isNotBlank()) { Text("Create") }
+            TextButton(onClick = { onCreate(slug) }, enabled = slug.isNotBlank()) { Text("Create") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Cancel") }

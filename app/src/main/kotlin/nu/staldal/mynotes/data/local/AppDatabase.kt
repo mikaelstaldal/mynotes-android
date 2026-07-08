@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  */
 @Database(
     entities = [NoteEntity::class, PendingChange::class, ConflictEntity::class, ArtifactEntity::class, TagEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)
@@ -39,13 +39,27 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * The backend dropped the tag `name` field: a tag is now identified solely by its `slug`,
+         * which is also its display label. Recreate the cached `tags` table without the `name`
+         * column; it is a pure server cache and repopulates on the next tag refresh. The `name`
+         * keys still embedded in existing `notes`/`conflicts` tag JSON are harmless — Gson ignores
+         * the unknown field when deserializing into the slimmed-down [TagEntity].
+         */
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS `tags`")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `tags` (`slug` TEXT NOT NULL, PRIMARY KEY(`slug`))")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "mynotes_database"
-                ).addMigrations(MIGRATION_1_2).build().also { INSTANCE = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { INSTANCE = it }
             }
         }
     }

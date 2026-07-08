@@ -96,7 +96,7 @@ private fun ConflictSideCard(
             Text(title, style = MaterialTheme.typography.titleMedium)
             if (tags.isNotEmpty()) {
                 Text(
-                    tags.joinToString(", ") { it.name },
+                    tags.joinToString(", ") { it.slug },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

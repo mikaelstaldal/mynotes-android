@@ -15,6 +15,7 @@ import nu.staldal.mynotes.data.local.TagEntity
 import nu.staldal.mynotes.data.preferences.ServerConfig
 import nu.staldal.mynotes.data.preferences.UserPreferences
 import nu.staldal.mynotes.data.sync.SyncWorker
+import nu.staldal.mynotes.util.SlugGenerator
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -174,13 +175,17 @@ class NoteViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Creates a new tag on the server and attaches it to the note being edited. Requires connectivity. */
-    fun createAndAttachTag(name: String) {
-        if (name.isBlank()) return
+    /**
+     * Creates a new tag on the server and attaches it to the note being edited. The free-text
+     * input is slugified, since a tag is now identified solely by its slug. Requires connectivity.
+     */
+    fun createAndAttachTag(input: String) {
+        if (input.isBlank()) return
+        val slug = SlugGenerator.slugify(input)
         viewModelScope.launch {
             try {
-                val tag = repository.createTag(name)
-                _formState.update { it.copy(tags = it.tags + tag) }
+                val tag = repository.createTag(slug)
+                _formState.update { it.copy(tags = (it.tags + tag).distinctBy { t -> t.slug }) }
             } catch (e: Exception) {
                 _formState.update { it.copy(error = "Could not create tag: ${e.message}") }
             }
