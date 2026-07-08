@@ -6,8 +6,10 @@ import java.util.regex.Pattern
 import org.commonmark.ext.autolink.AutolinkExtension
 import org.commonmark.ext.gfm.strikethrough.StrikethroughExtension
 import org.commonmark.ext.gfm.tables.TablesExtension
+import org.commonmark.ext.task.list.items.TaskListItemsExtension
 import org.commonmark.parser.Parser
 import org.commonmark.renderer.html.HtmlRenderer
+import org.owasp.html.ElementPolicy
 import org.owasp.html.HtmlPolicyBuilder
 import org.owasp.html.PolicyFactory
 
@@ -26,6 +28,7 @@ object NoteHtmlRenderer {
         TablesExtension.create(),
         StrikethroughExtension.create(),
         AutolinkExtension.create(),
+        TaskListItemsExtension.create(),
     )
     private val parser = Parser.builder()
         .extensions(extensions)
@@ -190,6 +193,33 @@ private val GLOBAL_ATTRIBUTES = arrayOf(
     "stretchy", "subscriptshift", "supscriptshift", "symmetric", "voffset",
 )
 
+// The sole permitted form control is the GFM task-list checkbox: <input type="checkbox">
+// carrying only checked/disabled. This mirrors the web client's DOMPurify hooks (see
+// mynotes/web/ts/util/markdown.ts): drop any <input> that is not a checkbox outright, and
+// force the surviving checkboxes to the canonical, non-interactive form (type=checkbox,
+// disabled, checked preserved). commonmark-java's task-list extension only ever emits exactly
+// this; the policy additionally hardens against raw <input> HTML that reached the renderer.
+private val CHECKBOX_INPUT_POLICY = ElementPolicy { _, attrs ->
+    var isCheckbox = false
+    var isChecked = false
+    var i = 0
+    while (i < attrs.size) {
+        val name = attrs[i]
+        val value = attrs[i + 1]
+        when {
+            name.equals("type", ignoreCase = true) -> isCheckbox = value.equals("checkbox", ignoreCase = true)
+            name.equals("checked", ignoreCase = true) -> isChecked = true
+        }
+        i += 2
+    }
+    if (!isCheckbox) return@ElementPolicy null
+    attrs.clear()
+    attrs.add("type"); attrs.add("checkbox")
+    attrs.add("disabled"); attrs.add("")
+    if (isChecked) { attrs.add("checked"); attrs.add("") }
+    "input"
+}
+
 // AttributeBuilder.matching(Pattern) requires a *full* match (Matcher.matches()), but
 // LINK_HREF_PATTERN/IMG_SRC_PATTERN are deliberately anchored only at the start (mirroring
 // DOMPurify's partial-match ALLOWED_URI_REGEXP semantics) — a scheme prefix is enough to decide
@@ -204,6 +234,10 @@ private val SANITIZER_POLICY: PolicyFactory = HtmlPolicyBuilder()
     .allowElements(*SVG_ELEMENTS)
     .allowElements(*MATHML_ELEMENTS)
     .allowAttributes(*GLOBAL_ATTRIBUTES).globally()
+    // GFM task-list checkbox: the policy drops non-checkbox <input> and normalizes the rest;
+    // these allowAttributes let the normalized type/checked/disabled survive attribute filtering.
+    .allowElements(CHECKBOX_INPUT_POLICY, "input")
+    .allowAttributes("type", "checked", "disabled").onElements("input")
     // Allow either a DOMPurify-style external/relative href, or an app-generated mynotes:// wikilink.
     .allowAttributes("href").matching(
         Predicate<String> { href ->

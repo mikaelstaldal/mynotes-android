@@ -228,6 +228,8 @@ private fun wrapHtmlDocument(bodyHtml: String, background: Color, onBackground: 
       pre, code { white-space: pre-wrap; word-break: break-word; }
       table { border-collapse: collapse; }
       th, td { border: 1px solid ${onBackground.toCssHex()}; padding: 4px 8px; }
+      li:has(input[type="checkbox"]) { list-style: none; }
+      input[type="checkbox"] { margin: 0 0.4em 0 -1.3em; vertical-align: middle; }
     </style>
     </head>
     <body>
