@@ -106,12 +106,18 @@ fun NoteDetailScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text(state.title, style = MaterialTheme.typography.headlineSmall)
-                    Text(
-                        "created ${NoteDateUtils.formatDisplayDateTime(state.createdAt)} · " +
-                            "updated ${NoteDateUtils.formatDisplayDateTime(state.updatedAt)} · v${state.version}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    TooltipBox(
+                        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+                        tooltip = { PlainTooltip { Text("Version ${state.version}") } },
+                        state = rememberTooltipState(),
+                    ) {
+                        Text(
+                            "created ${NoteDateUtils.formatDisplayDateTime(state.createdAt)} · " +
+                                "updated ${NoteDateUtils.formatDisplayDateTime(state.updatedAt)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     if (state.tags.isNotEmpty()) {
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             state.tags.forEach { tag ->

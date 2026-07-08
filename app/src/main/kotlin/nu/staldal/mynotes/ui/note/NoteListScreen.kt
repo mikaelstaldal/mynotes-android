@@ -257,6 +257,7 @@ private fun TagFilterRow(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun NoteListItem(note: NoteEntity, onClick: () -> Unit) {
     Column(
@@ -296,12 +297,18 @@ private fun NoteListItem(note: NoteEntity, onClick: () -> Unit) {
                 }
             }
         }
-        Text(
-            text = "created ${NoteDateUtils.formatDisplayDateTime(note.createdAt)} · " +
-                "updated ${NoteDateUtils.formatDisplayDateTime(note.updatedAt)} · v${note.version}",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        TooltipBox(
+            positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+            tooltip = { PlainTooltip { Text("Version ${note.version}") } },
+            state = rememberTooltipState(),
+        ) {
+            Text(
+                text = "created ${NoteDateUtils.formatDisplayDateTime(note.createdAt)} · " +
+                    "updated ${NoteDateUtils.formatDisplayDateTime(note.updatedAt)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
     HorizontalDivider()
 }
