@@ -44,6 +44,15 @@ fun NoteFormScreen(
         viewModel.updateFormContent(newText)
     }
 
+    // Insert a `[[...]]` wikilink, prepending a blank line when the cursor sits directly after a raw
+    // HTML element (e.g. an SVG or MathML block). Without the separating blank line CommonMark keeps
+    // consuming the following line as part of the HTML block, so the link would render as literal
+    // text instead of a wikilink (see WikiLinkProcessor).
+    fun insertLink(linkText: String) {
+        val insertPos = contentField.selection.start.coerceIn(0, contentField.text.length)
+        insertAtCursor(wikiLinkBlankLinePrefix(contentField.text.substring(0, insertPos)) + linkText)
+    }
+
     LaunchedEffect(slug) {
         viewModel.loadNoteForEdit(slug)
     }
@@ -150,7 +159,7 @@ fun NoteFormScreen(
                     .filter { it.slug != state.slug }
                     .map { WikiLinkOption(slug = it.slug, label = it.title) },
                 onDismiss = { showNoteLinkPicker = false },
-                onSelect = { insertAtCursor("[[${it.slug}]]"); showNoteLinkPicker = false },
+                onSelect = { insertLink("[[${it.slug}]]"); showNoteLinkPicker = false },
             )
         }
 
@@ -159,9 +168,27 @@ fun NoteFormScreen(
                 title = "Link to tag",
                 options = state.availableTags.map { WikiLinkOption(slug = it.slug, label = it.slug) },
                 onDismiss = { showTagLinkPicker = false },
-                onSelect = { insertAtCursor("[[#${it.slug}]]"); showTagLinkPicker = false },
+                onSelect = { insertLink("[[#${it.slug}]]"); showTagLinkPicker = false },
             )
         }
+    }
+}
+
+// Matches text that ends with a raw HTML/SVG/MathML tag (opening, closing or self-closing), e.g.
+// `</svg>`, `<math>`, `<rect x="1"/>`. The tag name must be followed by whitespace, `/` or `>` so
+// URL autolinks like `<https://example.com>` are not mistaken for tags.
+private val HTML_TAG_AT_END = Regex("""</?[A-Za-z][A-Za-z0-9-]*(\s[^<>]*)?/?>$""")
+
+// Returns the newlines to prepend to a wikilink inserted at the cursor so that a raw HTML element
+// immediately before it is separated by a blank line. Returns "" when no separation is needed —
+// either there is no preceding HTML element or a blank line already exists.
+internal fun wikiLinkBlankLinePrefix(before: String): String {
+    val content = before.trimEnd()
+    if (content.isEmpty() || !HTML_TAG_AT_END.containsMatchIn(content)) return ""
+    return when (before.substring(content.length).count { it == '\n' }) {
+        0 -> "\n\n" // cursor on the same line as the element
+        1 -> "\n"   // cursor on the next line; one more newline makes the line blank
+        else -> ""  // already separated by a blank line
     }
 }
 
