@@ -33,6 +33,11 @@ object NoteHtmlRenderer {
     private val parser = Parser.builder()
         .extensions(extensions)
         .linkProcessor(WikiLinkProcessor)
+        // AsciiMath: $…$ (inline) and $$…$$ (display, one or more lines) are converted to MathML at
+        // render time (see MathInlineParser); the emitted <math> passes through the sanitizer below,
+        // whose allow-list (MATHML_ELEMENTS + the MathML attributes in GLOBAL_ATTRIBUTES) already
+        // covers it — mirroring the web client (mynotes/web/ts/util/markdown.ts).
+        .customInlineContentParserFactory(MathInlineParser.Factory())
         .build()
     private val htmlRenderer = HtmlRenderer.builder().extensions(extensions).build()
 
