@@ -43,7 +43,10 @@ object NoteHtmlRenderer {
 
     fun renderToSanitizedHtml(markdown: String): String =
         try {
-            SANITIZER_POLICY.sanitize(htmlRenderer.render(parser.parse(markdown)))
+            // Inline built-in Lucide icon <img> references as <svg> before sanitizing, so a note's
+            // icons follow the app theme and render offline (see LucideIcons). The emitted <svg>
+            // uses only allow-listed elements/attributes and is still gated by the sanitizer below.
+            SANITIZER_POLICY.sanitize(LucideIcons.inlineIcons(htmlRenderer.render(parser.parse(markdown))))
         } catch (e: StackOverflowError) {
             // Pathologically nested input; fall back to a plain, escaped rendering rather
             // than crashing. The server's write-time validator bounds nesting depth for

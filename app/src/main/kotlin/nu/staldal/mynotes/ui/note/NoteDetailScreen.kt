@@ -231,6 +231,8 @@ private fun wrapHtmlDocument(bodyHtml: String, background: Color, onBackground: 
       body { margin: 0; padding: 0; font-family: sans-serif; background: ${background.toCssHex()}; color: ${onBackground.toCssHex()}; line-height: 1.4; }
       a { color: ${linkColor.toCssHex()}; }
       img, svg { max-width: 100%; height: auto; }
+      /* Sit inline Lucide icons on the text baseline (mirrors the server's note CSS). */
+      svg.lucide, img[src*="/api/v1/icons/"] { vertical-align: text-bottom; }
       pre, code { white-space: pre-wrap; word-break: break-word; }
       table { border-collapse: collapse; }
       th, td { border: 1px solid ${onBackground.toCssHex()}; padding: 4px 8px; }

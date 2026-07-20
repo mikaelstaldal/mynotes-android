@@ -46,7 +46,7 @@ Native Android app (Kotlin, Jetpack Compose) that consumes the MyNotes REST API 
 - **ui/settings/** — Server configuration screen (`SettingsScreen`, `SettingsViewModel`)
 - **ui/navigation/** — Compose Navigation graph (`NavGraph`)
 - **ui/theme/** — Material 3 theme with dynamic color support
-- **util/** — `SlugGenerator` (mirrors the server's slug derivation), `NoteDateUtils` (RFC 3339 formatting)
+- **util/** — `SlugGenerator` (mirrors the server's slug derivation), `NoteDateUtils` (RFC 3339 formatting), `NoteHtmlRenderer` (Markdown → sanitized HTML for the note WebView), `LucideIcons` (inlines built-in Lucide icon `<img>` references as themed `<svg>`)
 
 **Key design decisions:**
 - Single-activity architecture with Compose Navigation
@@ -57,6 +57,7 @@ Native Android app (Kotlin, Jetpack Compose) that consumes the MyNotes REST API 
 - Offline-first: all reads/writes go through Room; `NoteRepository` queues local mutations as `PendingChange` rows and `SyncWorker` replays them against the API
 - There is no delta/"since" sync endpoint — `refreshNotes()` pages through `GET /notes` and diffs `(slug, version)` against the local cache, fetching full content only for changed notes
 - Images embedded in note Markdown are content-addressed artifacts; offline-attached images are cached locally and uploaded (with content rewritten to the real URL) before the owning note's create/update syncs
+- Built-in Lucide icons appear in note Markdown as `![name](<base>/api/v1/icons/lucide/<name>)`. `LucideIcons` inlines each known reference as an `<svg>` (stroke `currentColor`, so it follows the theme) before sanitizing, so icons render offline without hitting the server — mirroring the web client and the server's HTML export. The icon geometry is vendored in `app/src/main/resources/lucide/lucide-icon-nodes.json` (a verbatim copy of the web bundle's `LUCIDE_ICON_NODES`); regenerate it with `tools/gen-lucide-icons.sh` after the server's icon set changes.
 
 ## Version control
 
