@@ -17,12 +17,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
+import nu.staldal.mynotes.util.MermaidRenderer
 import nu.staldal.mynotes.util.NoteDateUtils
 import nu.staldal.mynotes.util.NoteHtmlRenderer
 import java.io.File
@@ -39,7 +41,7 @@ fun NoteDetailScreen(
 ) {
     val state by viewModel.detailState.collectAsState()
     var showDeleteDialog by remember { mutableStateOf(false) }
-    var renderedHtml by remember { mutableStateOf<String?>(null) }
+    var renderedNote by remember { mutableStateOf<RenderedNote?>(null) }
 
     LaunchedEffect(slug) {
         viewModel.loadNote(slug)
@@ -54,7 +56,24 @@ fun NoteDetailScreen(
         if (state.slug != null) {
             val sanitizedBody = NoteHtmlRenderer.renderToSanitizedHtml(state.content)
             val withImages = viewModel.artifactRepository.rewriteImageSrcToDataUris(sanitizedBody)
-            renderedHtml = wrapHtmlDocument(withImages, colorScheme.background, colorScheme.onBackground, colorScheme.primary)
+            // Only diagrams need JavaScript; keep it disabled (and the CSP strict) otherwise.
+            val hasMermaid = MermaidRenderer.containsDiagram(withImages)
+            val mermaidScripts = if (hasMermaid) {
+                MermaidRenderer.scriptTags(dark = colorScheme.background.luminance() < 0.5f)
+            } else {
+                null
+            }
+            renderedNote = RenderedNote(
+                html = wrapHtmlDocument(
+                    withImages,
+                    colorScheme.background,
+                    colorScheme.onBackground,
+                    colorScheme.primary,
+                    colorScheme.error,
+                    mermaidScripts,
+                ),
+                enableJavaScript = hasMermaid,
+            )
         }
     }
 
@@ -133,8 +152,8 @@ fun NoteDetailScreen(
                         }
                     }
                     HorizontalDivider()
-                    val html = renderedHtml
-                    if (html == null) {
+                    val rendered = renderedNote
+                    if (rendered == null) {
                         Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator()
                         }
@@ -143,13 +162,17 @@ fun NoteDetailScreen(
                             modifier = Modifier.fillMaxSize().weight(1f),
                             factory = { ctx ->
                                 WebView(ctx).apply {
-                                    settings.javaScriptEnabled = false
                                     settings.allowFileAccess = false
                                     settings.allowContentAccess = false
                                     webViewClient = ExternalNavigationWebViewClient(onNavigateToNote, onNavigateToTag)
                                 }
                             },
-                            update = { webView -> webView.loadDataWithBaseURL(null, html, "text/html", "utf-8", null) },
+                            update = { webView ->
+                                // JavaScript is enabled only for notes that contain a Mermaid diagram; the
+                                // rendered HTML then carries the (relaxed) CSP that permits the injected engine.
+                                webView.settings.javaScriptEnabled = rendered.enableJavaScript
+                                webView.loadDataWithBaseURL(null, rendered.html, "text/html", "utf-8", null)
+                            },
                             onRelease = { it.destroy() },
                         )
                     }
@@ -214,19 +237,36 @@ private class ExternalNavigationWebViewClient(
 
 private fun Color.toCssHex(): String = String.format("#%06X", 0xFFFFFF and toArgb())
 
+/** A rendered note document plus whether its WebView needs JavaScript (only Mermaid diagrams do). */
+private data class RenderedNote(val html: String, val enableJavaScript: Boolean)
+
 /**
  * Wraps a sanitized HTML body fragment into a complete document, styled to match the app's
- * Material theme. Script execution is already disabled via WebSettings; the CSP below is
- * defense-in-depth, and restricts images to already-resolved data: URIs so the WebView never
- * makes its own (unauthenticated) network requests.
+ * Material theme. For the common note the CSP forbids scripts entirely (JavaScript is also disabled
+ * via WebSettings) and restricts images to already-resolved data: URIs so the WebView never makes
+ * its own (unauthenticated) network requests.
+ *
+ * [mermaidScripts] is non-null only when the note contains a ```mermaid diagram: it carries the
+ * bundled Mermaid engine plus its driver (see [MermaidRenderer]), injected at the end of the body,
+ * and the CSP is relaxed to permit those inline scripts. The engine renders entirely on-device (no
+ * network), so `img-src`/`default-src` stay locked down.
  */
-private fun wrapHtmlDocument(bodyHtml: String, background: Color, onBackground: Color, linkColor: Color): String = """
+private fun wrapHtmlDocument(
+    bodyHtml: String,
+    background: Color,
+    onBackground: Color,
+    linkColor: Color,
+    errorColor: Color,
+    mermaidScripts: String?,
+): String {
+    val scriptSrc = if (mermaidScripts != null) " script-src 'unsafe-inline';" else ""
+    return """
     <!DOCTYPE html>
     <html>
     <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline';">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline';$scriptSrc">
     <style>
       body { margin: 0; padding: 0; font-family: sans-serif; background: ${background.toCssHex()}; color: ${onBackground.toCssHex()}; line-height: 1.4; }
       a { color: ${linkColor.toCssHex()}; }
@@ -238,13 +278,18 @@ private fun wrapHtmlDocument(bodyHtml: String, background: Color, onBackground: 
       th, td { border: 1px solid ${onBackground.toCssHex()}; padding: 4px 8px; }
       li:has(input[type="checkbox"]) { list-style: none; }
       input[type="checkbox"] { margin: 0 0.4em 0 -1.3em; vertical-align: middle; }
+      /* Rendered Mermaid diagram: centered, never wider than the content column (mirrors the web). */
+      .mermaid-diagram { margin: 0.9em 0; text-align: center; }
+      /* A diagram that failed to render keeps its source visible, flagged in the error color. */
+      pre.mermaid-error { border: 1px solid ${errorColor.toCssHex()}; }
     </style>
     </head>
     <body>
-    $bodyHtml
+    $bodyHtml${mermaidScripts?.let { "\n$it" } ?: ""}
     </body>
     </html>
 """.trimIndent()
+}
 
 private fun shareNoteAsMarkdown(context: android.content.Context, title: String, content: String) {
     val sharedDir = File(context.cacheDir, "shared")
