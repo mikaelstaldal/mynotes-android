@@ -56,13 +56,10 @@ fun NoteDetailScreen(
         if (state.slug != null) {
             val sanitizedBody = NoteHtmlRenderer.renderToSanitizedHtml(state.content)
             val withImages = viewModel.artifactRepository.rewriteImageSrcToDataUris(sanitizedBody)
+            val dark = colorScheme.background.luminance() < 0.5f
             // Only diagrams need JavaScript; keep it disabled (and the CSP strict) otherwise.
             val hasMermaid = MermaidRenderer.containsDiagram(withImages)
-            val mermaidScripts = if (hasMermaid) {
-                MermaidRenderer.scriptTags(dark = colorScheme.background.luminance() < 0.5f)
-            } else {
-                null
-            }
+            val mermaidScripts = if (hasMermaid) MermaidRenderer.scriptTags(dark = dark) else null
             renderedNote = RenderedNote(
                 html = wrapHtmlDocument(
                     withImages,
@@ -70,6 +67,7 @@ fun NoteDetailScreen(
                     colorScheme.onBackground,
                     colorScheme.primary,
                     colorScheme.error,
+                    dark,
                     mermaidScripts,
                 ),
                 enableJavaScript = hasMermaid,
@@ -257,6 +255,7 @@ private fun wrapHtmlDocument(
     onBackground: Color,
     linkColor: Color,
     errorColor: Color,
+    dark: Boolean,
     mermaidScripts: String?,
 ): String {
     val scriptSrc = if (mermaidScripts != null) " script-src 'unsafe-inline';" else ""
@@ -278,6 +277,7 @@ private fun wrapHtmlDocument(
       th, td { border: 1px solid ${onBackground.toCssHex()}; padding: 4px 8px; }
       li:has(input[type="checkbox"]) { list-style: none; }
       input[type="checkbox"] { margin: 0 0.4em 0 -1.3em; vertical-align: middle; }
+${calloutCss(dark, background)}
       /* Rendered Mermaid diagram: centered, never wider than the content column (mirrors the web). */
       .mermaid-diagram { margin: 0.9em 0; text-align: center; }
       /* A diagram that failed to render keeps its source visible, flagged in the error color. */
@@ -289,6 +289,66 @@ private fun wrapHtmlDocument(
     </body>
     </html>
 """.trimIndent()
+}
+
+/** A callout colour family and its accent, per theme (mirrors app.css --callout-* in the web client). */
+private data class CalloutFamily(val name: String, val light: Int, val dark: Int)
+
+private val CALLOUT_FAMILIES = listOf(
+    CalloutFamily("blue", 0x2563EB, 0x3B82F6),
+    CalloutFamily("green", 0x16A34A, 0x22C55E),
+    CalloutFamily("cyan", 0x0891B2, 0x22D3EE),
+    CalloutFamily("amber", 0xD97706, 0xF59E0B),
+    CalloutFamily("red", 0xDC2626, 0xEF4444),
+    CalloutFamily("gray", 0x6B7280, 0x9CA3AF),
+)
+
+/**
+ * CSS for icon/box/callout rendering (see NoteHtmlRenderer / CalloutProcessor), mirroring the web
+ * client's app.css `.callout*` rules. The web uses CSS `color-mix()` over `--callout-*` variables;
+ * here the accent/border/background tints are precomputed in Kotlin so the styling works on every
+ * WebView regardless of `color-mix` support. `gray` is the default family for a static box (`>*`)
+ * that carries no alias.
+ */
+private fun calloutCss(dark: Boolean, background: Color): String {
+    fun accent(f: CalloutFamily) = if (dark) f.dark else f.light
+    val gray = CALLOUT_FAMILIES.first { it.name == "gray" }
+    val lines = mutableListOf(
+        // Base box: geometry + the default (gray) accent for a marker-only static box.
+        ".callout { margin: 0.75em 0; padding: 0.6em 1em; border-style: solid; border-width: 1px; border-left-width: 4px; border-radius: 6px; border-color: ${mixHex(accent(gray), background, 0.35f)}; border-left-color: ${hex(accent(gray))}; background: ${mixHex(accent(gray), background, 0.08f)}; }",
+        ".callout > .callout-title { color: ${hex(accent(gray))}; }",
+        ".callout > :nth-child(2) { margin-top: 0.4em; }",
+        ".callout > :last-child { margin-bottom: 0; }",
+        ".callout-title { display: flex; align-items: center; gap: 0.4em; margin: 0; font-weight: 600; }",
+        ".callout-title svg.lucide { vertical-align: middle; }",
+        ".callout-foldable > .callout-title { cursor: pointer; list-style: none; }",
+        ".callout-foldable > .callout-title::-webkit-details-marker { display: none; }",
+        """.callout-foldable > .callout-title::after { content: ""; width: 0.5em; height: 0.5em; margin-left: auto; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg); transition: transform 0.15s ease; }""",
+        "details.callout-foldable[open] > .callout-title::after { transform: rotate(45deg); }",
+    )
+    // Per-family accents: box tint (only when the element is also a .callout) and text colour (box
+    // title and alias-tinted paragraph).
+    for (f in CALLOUT_FAMILIES) {
+        val a = accent(f)
+        lines += ".callout.callout-color-${f.name} { border-color: ${mixHex(a, background, 0.35f)}; border-left-color: ${hex(a)}; background: ${mixHex(a, background, 0.08f)}; }"
+        lines += ".callout.callout-color-${f.name} > .callout-title { color: ${hex(a)}; }"
+        lines += ".callout-para.callout-color-${f.name} { color: ${hex(a)}; }"
+    }
+    return lines.joinToString("\n") { "      $it" }
+}
+
+/** `#RRGGBB` for a packed 0xRRGGBB int. */
+private fun hex(rgb: Int): String = String.format("#%06X", rgb and 0xFFFFFF)
+
+/** `#RRGGBB` for [rgb] blended over [bg] at [alpha] (mirrors the web `color-mix` box tints). */
+private fun mixHex(rgb: Int, bg: Color, alpha: Float): String {
+    val br = (bg.red * 255f)
+    val bgc = (bg.green * 255f)
+    val bb = (bg.blue * 255f)
+    val r = ((rgb shr 16 and 0xFF) * alpha + br * (1 - alpha)).toInt().coerceIn(0, 255)
+    val g = ((rgb shr 8 and 0xFF) * alpha + bgc * (1 - alpha)).toInt().coerceIn(0, 255)
+    val b = ((rgb and 0xFF) * alpha + bb * (1 - alpha)).toInt().coerceIn(0, 255)
+    return String.format("#%02X%02X%02X", r, g, b)
 }
 
 private fun shareNoteAsMarkdown(context: android.content.Context, title: String, content: String) {

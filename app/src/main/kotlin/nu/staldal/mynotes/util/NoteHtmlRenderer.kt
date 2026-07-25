@@ -7,6 +7,7 @@ import org.commonmark.ext.autolink.AutolinkExtension
 import org.commonmark.ext.gfm.strikethrough.StrikethroughExtension
 import org.commonmark.ext.gfm.tables.TablesExtension
 import org.commonmark.ext.task.list.items.TaskListItemsExtension
+import org.commonmark.parser.IncludeSourceSpans
 import org.commonmark.parser.Parser
 import org.commonmark.renderer.html.HtmlRenderer
 import org.owasp.html.ElementPolicy
@@ -32,21 +33,40 @@ object NoteHtmlRenderer {
     )
     private val parser = Parser.builder()
         .extensions(extensions)
+        // `[[…]]` wikilinks and `[!name]` inline icons both piggyback on the LinkProcessor API (the
+        // core bracket parser consumes the leading `[` before custom inline parsers run). Each declines
+        // (LinkResult.none()) when the bracket isn't its form, so the next processor is tried.
         .linkProcessor(WikiLinkProcessor)
+        .linkProcessor(IconLinkProcessor)
         // AsciiMath: $…$ (inline) and $$…$$ (display, one or more lines) are converted to MathML at
         // render time (see MathInlineParser); the emitted <math> passes through the sanitizer below,
         // whose allow-list (MATHML_ELEMENTS + the MathML attributes in GLOBAL_ATTRIBUTES) already
         // covers it — mirroring the web client (mynotes/web/ts/util/markdown.ts).
         .customInlineContentParserFactory(MathInlineParser.Factory())
+        // Emoji shortcodes: `:name:` -> the raw Unicode emoji (see EmojiShortcodes).
+        .customInlineContentParserFactory(EmojiShortcodes.Factory())
+        // Block source spans let CalloutProcessor match a blockquote to the box marker recorded for
+        // its source line by CalloutProcessor.preprocessMarkers.
+        .includeSourceSpans(IncludeSourceSpans.BLOCKS)
         .build()
-    private val htmlRenderer = HtmlRenderer.builder().extensions(extensions).build()
+    private val htmlRenderer = HtmlRenderer.builder()
+        .extensions(extensions)
+        // Render the custom icon/callout nodes CalloutProcessor produces, and tint alias paragraphs.
+        .nodeRendererFactory(CalloutNodeRenderer.Factory())
+        .attributeProviderFactory(AliasParagraphAttributeProvider.Factory())
+        .build()
 
     fun renderToSanitizedHtml(markdown: String): String =
         try {
+            // Strip the `>*`/`>-`/`>+` box markers (recording them per line) before parsing, then
+            // rewrite qualifying blockquotes into callout boxes on the parsed AST (see CalloutProcessor).
+            val (cleaned, markers) = CalloutProcessor.preprocessMarkers(markdown)
+            val document = parser.parse(cleaned)
+            CalloutProcessor.restructure(document, markers)
             // Inline built-in Lucide icon <img> references as <svg> before sanitizing, so a note's
             // icons follow the app theme and render offline (see LucideIcons). The emitted <svg>
             // uses only allow-listed elements/attributes and is still gated by the sanitizer below.
-            SANITIZER_POLICY.sanitize(LucideIcons.inlineIcons(htmlRenderer.render(parser.parse(markdown))))
+            SANITIZER_POLICY.sanitize(LucideIcons.inlineIcons(htmlRenderer.render(document)))
         } catch (e: StackOverflowError) {
             // Pathologically nested input; fall back to a plain, escaped rendering rather
             // than crashing. The server's write-time validator bounds nesting depth for
