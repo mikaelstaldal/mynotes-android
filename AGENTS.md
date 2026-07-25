@@ -46,7 +46,7 @@ Native Android app (Kotlin, Jetpack Compose) that consumes the MyNotes REST API 
 - **ui/settings/** — Server configuration screen (`SettingsScreen`, `SettingsViewModel`)
 - **ui/navigation/** — Compose Navigation graph (`NavGraph`)
 - **ui/theme/** — Material 3 theme with dynamic color support
-- **util/** — `SlugGenerator` (mirrors the server's slug derivation), `NoteDateUtils` (RFC 3339 formatting), `NoteHtmlRenderer` (Markdown → sanitized HTML for the note WebView; wires up all the transforms below), `AsciiMath`/`MathInlineParser` (`$…$`/`$$…$$` AsciiMath → MathML), `WikiLinkProcessor` (`[[…]]` internal wikilinks), `LucideIcons` (inlines built-in Lucide icon `<img>` references, and provides the icon geometry for the `[!name]` compact form, as themed `<svg>`), `IconLinkProcessor` (`[!name]` inline icons + the callout alias table), `CalloutProcessor`/`CalloutNodes`/`CalloutRenderer` (`>*`/`>-`/`>+` boxes, `[!alias]` callouts, and alias-tinted paragraphs), `EmojiShortcodes` (`:shortcode:` → Unicode emoji), `MermaidRenderer` (supplies the bundled Mermaid engine + driver that renders ```mermaid diagrams in the note WebView)
+- **util/** — `SlugGenerator` (mirrors the server's slug derivation), `NoteDateUtils` (RFC 3339 formatting)
 
 **Key design decisions:**
 - Single-activity architecture with Compose Navigation
@@ -57,9 +57,43 @@ Native Android app (Kotlin, Jetpack Compose) that consumes the MyNotes REST API 
 - Offline-first: all reads/writes go through Room; `NoteRepository` queues local mutations as `PendingChange` rows and `SyncWorker` replays them against the API
 - There is no delta/"since" sync endpoint — `refreshNotes()` pages through `GET /notes` and diffs `(slug, version)` against the local cache, fetching full content only for changed notes
 - Images embedded in note Markdown are content-addressed artifacts; offline-attached images are cached locally and uploaded (with content rewritten to the real URL) before the owning note's create/update syncs
-- Built-in Lucide icons appear in note Markdown as `![name](<base>/api/v1/icons/lucide/<name>)`. `LucideIcons` inlines each known reference as an `<svg>` (stroke `currentColor`, so it follows the theme) before sanitizing, so icons render offline without hitting the server — mirroring the web client and the server's HTML export. The icon geometry is vendored in `app/src/main/resources/lucide/lucide-icon-nodes.json` (a verbatim copy of the web bundle's `LUCIDE_ICON_NODES`); regenerate it with `tools/gen-lucide-icons.sh` after the server's icon set changes.
-- ` ```mermaid ` fenced code blocks (Obsidian convention) render as diagrams — like the web client, and the server does not render them either. Unlike icons/MathML (inlined in the Kotlin pipeline), Mermaid needs a JS engine + live DOM, so the note WebView normally keeps JavaScript disabled and a strict no-`script-src` CSP; only when the sanitized note contains a `<code class="language-mermaid">` block does `NoteDetailScreen` enable JavaScript, relax the CSP to permit inline scripts, and inject `MermaidRenderer.scriptTags` (the bundled engine + a driver mirroring `mynotes/web/ts/util/mermaid.ts`: `securityLevel:'strict'`, `htmlLabels:false`, theme following light/dark). The engine is vendored verbatim from the web client's pinned Mermaid package at `app/src/main/resources/mermaid/mermaid.min.js` (the global build, ~2.7 MB); regenerate it with `tools/gen-mermaid.sh` after the web bundle updates Mermaid.
-- The Markdown dialect is specified in `../mynotes/markdown-spec.md` (the canonical spec). All the render-time transforms it defines are implemented on-device so notes render identically offline, mirroring the web client's `mynotes/web/ts/util/markdown.ts`: `[!name]` inline icons and callout aliases (`IconLinkProcessor`), `>*`/`>-`/`>+` boxes + `[!alias]` callouts + alias-tinted paragraphs (`CalloutProcessor` restructures the parsed AST into the custom `CalloutBlock`/`CalloutTitle`/`IconNode` nodes rendered by `CalloutRenderer`; boxes/foldables render as `<blockquote>`/`<details>` styled by callout CSS in `NoteDetailScreen.calloutCss`), `:shortcode:` emoji (`EmojiShortcodes`), plus the pre-existing `[[…]]` wikilinks and `$…$` AsciiMath. commonmark-java's core bracket parser eats the leading `[`, so both `[[…]]` and `[!name]` piggyback on the `LinkProcessor` API (registered in order; each declines when the bracket isn't its form). Box markers must be stripped *before* parsing (else `>- x` parses as a blockquote containing a list), so `CalloutProcessor.preprocessMarkers` records them per source line and `restructure` matches them back via block source spans. The emoji shortcode map is vendored in `app/src/main/resources/emoji/emoji-shortcodes.json` (a verbatim copy of the web bundle's `EMOJI_SHORTCODES`); regenerate it with `tools/gen-emoji.sh`. Everything still flows through the single OWASP sanitizer gate in `NoteHtmlRenderer`.
+- **Markdown is not rendered in Kotlin.** The dialect (`../mynotes/markdown-spec.md`) is large — CommonMark + GFM subset, `[[…]]` wikilinks, `[!name]` inline Lucide icons, `>*`/`>-`/`>+` boxes and `[!alias]` callouts, `:shortcode:` emoji, `$…$` AsciiMath → MathML, ` ```mermaid ` diagrams — and every part of it is a client render-time transform. This app used to re-implement all of it on commonmark-java (down to a hand-port of the `asciimath2ml` JS library) and keep it in step with the web client by hand. It now embeds the web client's actual pipeline instead: see **Note rendering** below.
+
+## Note rendering
+
+A note's body is displayed by driving the **MyNotes render kit** — the web client's own Markdown
+pipeline, packaged as a static page — in a WebView. There is no Kotlin implementation of the
+Markdown dialect, so this app is at feature parity with the web UI by construction.
+
+- The kit is vendored at `app/src/main/assets/renderer/`. Refresh it with
+  `tools/sync-renderer.sh [path-to-mynotes]` (defaults to `../mynotes`), which delegates to that
+  repo's `tools/dist-renderer.sh`; run `./build.sh` there first. **Commit the result** — the app
+  renders offline, without the server. This replaced the old `gen-mermaid.sh` /
+  `gen-lucide-icons.sh` / `gen-emoji.sh`, which vendored three pieces of the same pipeline.
+- `ui/note/NoteRendererWebView.kt` owns the integration. It serves the kit over a real origin with
+  `WebViewAssetLoader` (`https://appassets.androidplatform.net/assets/renderer/…`) rather than
+  `loadDataWithBaseURL(null, …)`, because the page loads ES modules through an import map.
+- **In:** Markdown and the theme are pushed with `evaluateJavascript` into the page's
+  `MyNotesRender.render(markdown)` / `setTheme(theme, vars)` API, JSON-quoted. Note content is never
+  spliced into HTML or JS syntax, and the kit's DOMPurify gate stays the only path to the DOM. The
+  first push waits for `onPageFinished`. Material colours are passed as `--bg`/`--fg`/`--primary`
+  overrides so the note blends into the app chrome while callouts/code/tables keep the canonical
+  styling from the kit's `note.css`.
+- **Out:** taps arrive at `shouldOverrideUrlLoading`. Wikilinks are the same root-relative
+  `/notes/<slug>` / `/tags/<slug>` URLs the web UI emits (no more `mynotes://` scheme) and navigate
+  in-app; http(s)/mailto open externally; anything else is blocked.
+- **Requests:** `shouldInterceptRequest` is an *allow-list* — the kit's own asset files, plus image
+  references resolved locally through `ArtifactRepository` (`artifactRefFor`). Everything else gets a
+  403, so viewing a note makes no unauthenticated network request and a note embedding a third-party
+  image cannot phone home. This preserves the posture the app had when it inlined images as `data:`
+  URIs.
+- Locally-attached images are `local-artifact://<id>` in the Markdown, a scheme the renderer's URL
+  allow-list drops. `rewriteLocalArtifactRefs` rewrites them to `/local-artifact/<id>` before
+  rendering, and the interceptor maps that back.
+- JavaScript is now always enabled (the renderer *is* JavaScript), where it used to be enabled only
+  for notes containing a Mermaid diagram.
+- Icons: the renderer inlines every icon it knows as themed `<svg>`, so `/api/v1/icons/…` requests
+  only escape for a name the vendored kit lacks — those render broken until the kit is re-synced.
 
 ## Version control
 

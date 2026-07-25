@@ -134,12 +134,11 @@ dependencies {
     ksp(libs.androidx.room.compiler)
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.security.crypto)
-    implementation(libs.commonmark)
-    implementation(libs.commonmark.ext.gfm.tables)
-    implementation(libs.commonmark.ext.gfm.strikethrough)
-    implementation(libs.commonmark.ext.autolink)
-    implementation(libs.commonmark.ext.task.list.items)
-    implementation(libs.owasp.html.sanitizer)
+    // Markdown is rendered by the vendored MyNotes render kit in a WebView
+    // (assets/renderer/, refreshed by tools/sync-renderer.sh), not on the JVM —
+    // hence no commonmark/HTML-sanitizer dependencies. androidx.webkit supplies
+    // WebViewAssetLoader, which serves that kit to the WebView over a real origin.
+    implementation(libs.androidx.webkit)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

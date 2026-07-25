@@ -5,6 +5,9 @@ Native Android client for the [MyNotes](https://github.com/mikaelstaldal/mynotes
 ## Features
 
 - Create, view, edit, and delete notes (Markdown content)
+- Notes render exactly as in the web UI — callouts, inline icons, emoji shortcodes, wikilinks,
+  AsciiMath and Mermaid diagrams — by embedding the server's shared render kit rather than
+  reimplementing the Markdown dialect
 - Full-text note search
 - Embedded images
 - Works fully offline — changes queue locally and sync automatically when connectivity returns
@@ -26,6 +29,14 @@ gradle assembleDebug
 ```
 
 The debug APK is output to `app/build/outputs/apk/debug/app-debug.apk`.
+
+The Markdown render kit is vendored (and committed) under `app/src/main/assets/renderer/`, so the
+build needs nothing extra. To pick up changes to the dialect, refresh it from a local checkout of
+the server repo — run `./build.sh` there first — and commit the result:
+
+```bash
+tools/sync-renderer.sh ../mynotes
+```
 
 ## Setup
 
