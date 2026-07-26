@@ -1,3 +1,7 @@
+// Not java.util.Properties inline below: in the Kotlin DSL `java` is the Java plugin's extension,
+// so a fully-qualified reference to the package does not resolve.
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -25,9 +29,57 @@ openApiGenerate {
     generateModelDocumentation.set(false)
 }
 
+// Signing key shared by the My* apps, which reads notes through
+// NotesProvider under a signature-level permission — so the two apps must be signed with the same
+// key for that permission to be granted. The default ~/.android/debug.keystore would satisfy that,
+// but it is a poor trust anchor: world-readable, fixed password "android", and shared by every
+// debug APK built on the machine, any of which would then be able to read all your notes.
+//
+// Configure it in local.properties (kept out of version control), or through the matching
+// environment variables for CI:
+//
+//     debugKeystore=/path/to/staldal-apps.keystore   DEBUG_KEYSTORE
+//     debugKeystorePassword=…                        DEBUG_KEYSTORE_PASSWORD
+//     debugKeyAlias=staldal-apps                     DEBUG_KEY_ALIAS
+//     debugKeyPassword=…                             DEBUG_KEY_PASSWORD
+//
+// Absent or incomplete, the build still works but falls back to the default debug key and says so.
+// Both apps then fall back alike, so the integration keeps working — it is the trust boundary that
+// weakens, which is exactly the thing that must not happen quietly.
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+
+fun signingProperty(key: String, env: String): String? =
+    (localProperties.getProperty(key) ?: System.getenv(env))?.takeIf { it.isNotBlank() }
+
 android {
     namespace = "nu.staldal.mynotes"
     compileSdk = 36
+
+    signingConfigs {
+        // Overrides the built-in debug config, which debug and androidTest builds already use.
+        getByName("debug") {
+            val store = signingProperty("debugKeystore", "DEBUG_KEYSTORE")?.let(::file)
+            val storePw = signingProperty("debugKeystorePassword", "DEBUG_KEYSTORE_PASSWORD")
+            val alias = signingProperty("debugKeyAlias", "DEBUG_KEY_ALIAS")
+            val keyPw = signingProperty("debugKeyPassword", "DEBUG_KEY_PASSWORD")
+            if (store?.exists() == true && storePw != null && alias != null && keyPw != null) {
+                storeFile = store
+                storeType = "PKCS12"
+                storePassword = storePw
+                keyAlias = alias
+                keyPassword = keyPw
+            } else {
+                logger.warn(
+                    "MyNotes: no shared debug signing key configured (see app/build.gradle.kts); " +
+                        "falling back to the default debug keystore, which any debug app on this " +
+                        "machine can impersonate to read your notes."
+                )
+            }
+        }
+    }
 
     defaultConfig {
         applicationId = "nu.staldal.mynotes"

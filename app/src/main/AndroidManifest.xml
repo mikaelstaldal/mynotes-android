@@ -4,6 +4,19 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!--
+      Guards NotesProvider, which lets a sibling apps read the notes cached on this device.
+      Signature level: only an app signed with the same key as MyNotes is granted it, at install
+      time and without a prompt. Notes are personal data and the provider has no finer-grained
+      authorization, so the signing key is the whole of the trust boundary — build both apps with
+      the same key or the integration stays dark.
+    -->
+    <permission
+        android:name="nu.staldal.mynotes.permission.READ_NOTES"
+        android:label="@string/permission_read_notes_label"
+        android:description="@string/permission_read_notes_description"
+        android:protectionLevel="signature" />
+
     <application
         android:name=".MyNotesApplication"
         android:allowBackup="false"
@@ -17,12 +30,45 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!--
+              Opens a note or a tag named by a NotesProvider URI, so a consumer of the provider can
+              hand the user over to this app — following a wikilink out of an embedded note, or
+              editing a note it can only read. See NotesContract.noteUri / tagUri.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="content"
+                    android:host="nu.staldal.mynotes.notes"
+                    android:mimeType="vnd.android.cursor.item/vnd.nu.staldal.mynotes.note" />
+                <data
+                    android:scheme="content"
+                    android:host="nu.staldal.mynotes.notes"
+                    android:mimeType="vnd.android.cursor.item/vnd.nu.staldal.mynotes.tag" />
+            </intent-filter>
         </activity>
+
+        <!--
+          Read-only access to this device's notes for a sibling app; see NotesProvider. Exported
+          because that is the point, and gated by the signature permission declared above.
+
+          android:permission, not android:readPermission: the latter guards only query/openFile,
+          leaving insert/update/delete reachable by any app. They throw, so nothing is written —
+          but a read-only provider should not expose an unguarded entry point at all.
+        -->
+        <provider
+            android:name=".provider.NotesProvider"
+            android:authorities="nu.staldal.mynotes.notes"
+            android:exported="true"
+            android:permission="nu.staldal.mynotes.permission.READ_NOTES" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

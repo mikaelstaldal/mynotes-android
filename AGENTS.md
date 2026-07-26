@@ -40,6 +40,7 @@ Native Android app (Kotlin, Jetpack Compose) that consumes the MyNotes REST API 
 - **data/local/** — Room database: `NoteEntity`, `PendingChange`, `ConflictEntity`, `ArtifactEntity` and their DAOs, `NoteMapper`
 - **data/preferences/** — DataStore for server URL/offline mode (`UserPreferences`), EncryptedSharedPreferences for credentials (`CredentialStore`)
 - **data/sync/** — `SyncWorker` (WorkManager periodic + one-time background sync)
+- **provider/** — `NotesProvider`, the read-only content provider other apps read notes through, and its `NotesContract`; see **Notes provider** below
 - **data/** — `NoteRepository` (single source of truth, offline-first), `ArtifactRepository` (local image cache + deferred upload), `ConnectivityObserver`
 - **ui/note/** — Note list, detail, and create/edit form (`NoteListScreen`, `NoteDetailScreen`, `NoteFormScreen` + ViewModels)
 - **ui/conflict/** — Conflict list/detail screens for resolving version conflicts detected during sync
@@ -94,6 +95,37 @@ Markdown dialect, so this app is at feature parity with the web UI by constructi
   for notes containing a Mermaid diagram.
 - Icons: the renderer inlines every icon it knows as themed `<svg>`, so `/api/v1/icons/…` requests
   only escape for a name the vendored kit lacks — those render broken until the kit is re-synced.
+
+## Notes provider (integration with sibling apps)
+
+`provider/NotesProvider.kt` exports this device's notes, read-only, to other apps —
+`provider/NotesContract.kt` is the interface. It exists so a sibling app can *show* a note without
+becoming a second notes client: no second database, no second set of credentials, no second sync.
+Because it reads the same Room cache the app itself reads, a consumer inherits this app's offline
+support for free. MyCal (`../mycal-android`) uses it for the note linked to a calendar event.
+
+- **Published interface.** A consumer hard-codes the authority, paths, columns and permission name
+  (MyCal duplicates them in its own `data/api/MyNotesClient.kt` — the two repos are built
+  separately, so nothing can be shared). Add to `NotesContract`, don't rename.
+- **Permission.** `nu.staldal.mynotes.permission.READ_NOTES`, `signature`. Only an app signed with
+  the same key is granted it, at install time and with no prompt. That signing key is the whole of
+  the trust boundary: the provider has no per-note authorization. Build both apps with the same key
+  or the integration stays dark — the consumer's job is to detect that and say so.
+- **Read-only.** Writes throw. A consumer that wants a note changed sends the user here with
+  `ACTION_VIEW` on `NotesContract.noteUri` / `tagUri`, so editing always happens in this app under
+  its own conflict handling. `MainActivity.routeForUri` turns those URIs into a destination; the
+  matching intent filters are in the manifest.
+- **Queries.** The URI and its parameters *are* the query surface — `selection` and `sortOrder` are
+  rejected rather than passed to SQL, keeping callers away from the schema. Title-prefix matching
+  (`NoteDao.searchByTitlePrefix`) escapes LIKE's wildcards so a typed `%` matches literally.
+- **Images.** `artifacts/<sha256>` and `local-artifacts/<id>` stream through `ArtifactRepository`,
+  the same path the app's own note view uses: local cache first, server only when configured and
+  online. A consumer reads the bytes with `openInputStream` and the content type with `getType`;
+  the provider memoizes the last resolution so that pair costs one fetch.
+- **Content that was never downloaded.** A note synced as a summary only comes back with
+  `has_full_content = 0` and empty content rather than a lie. Reading one note calls
+  `NoteRepository.ensureFullContent` first, which fetches the body when online and is a no-op when
+  not.
 
 ## Version control
 

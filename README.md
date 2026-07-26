@@ -9,6 +9,9 @@ Native Android client for the [MyNotes](https://github.com/mikaelstaldal/mynotes
   AsciiMath and Mermaid diagrams — by embedding the server's shared render kit rather than
   reimplementing the Markdown dialect
 - Full-text note search
+- Shares its notes with [MyCal](https://github.com/mikaelstaldal/mycal-android) on the same device,
+  so a calendar event can link a note and show it — offline, without either app talking to the
+  other's server — see below
 - Embedded images
 - Works fully offline — changes queue locally and sync automatically when connectivity returns
 - Conflict detection and resolution for edits made on multiple devices
@@ -44,6 +47,59 @@ tools/sync-renderer.sh ../mynotes
 2. On the first launch, you'll be prompted to configure the server
 3. Enter the MyNotes server URL (e.g. `http://192.168.1.100:8080`), username, and password
 4. Use "Test Connection" to verify connectivity before saving
+
+### Sharing notes with MyCal
+
+MyNotes exports its notes, read-only, to other apps on the device through a content provider, so
+[MyCal](https://github.com/mikaelstaldal/mycal-android) can link a note to a calendar event and show
+it inline. Nothing needs configuring in either app — but they must be **signed with the same key**,
+since the provider is guarded by a `signature`-level permission
+(`nu.staldal.mynotes.permission.READ_NOTES`). When the keys differ, MyCal says so under Settings
+instead of failing silently.
+
+Only reads are exported: MyCal can show a note but never change one. Editing always happens here —
+following a note link from MyCal opens this app.
+
+#### Signing both apps with one key
+
+The default `~/.android/debug.keystore` would satisfy the signature check, but it is a poor trust
+anchor: world-readable, fixed password `android`, and shared by every debug APK built on the machine
+— any of which would then be able to read all your notes, silently, since signature permissions are
+granted at install with no prompt. Create one keystore of your own instead, and use it for both apps:
+
+```bash
+KS="$HOME/.android/staldal-apps.keystore"
+PW="$(openssl rand -base64 24)"
+
+keytool -genkeypair -v \
+  -keystore "$KS" -storetype PKCS12 \
+  -alias staldal-apps \
+  -keyalg RSA -keysize 4096 -validity 10950 \
+  -dname "CN=Mikael Staldal, O=staldal.nu, C=SE" \
+  -storepass "$PW" -keypass "$PW"
+
+chmod 600 "$KS"
+echo "$PW"   # keep this — it cannot be recovered from the keystore
+```
+
+`-storepass` and `-keypass` are the same value on purpose: PKCS12 has no real support for a separate
+key password. Then add the following to `local.properties` **in both repos**, with identical values
+(that file is never checked in):
+
+```properties
+debugKeystore=/home/you/.android/staldal-apps.keystore
+debugKeystorePassword=…
+debugKeyAlias=staldal-apps
+debugKeyPassword=…
+```
+
+`app/build.gradle.kts` picks these up for the debug build type. CI can supply the same values as
+`DEBUG_KEYSTORE`, `DEBUG_KEYSTORE_PASSWORD`, `DEBUG_KEY_ALIAS` and `DEBUG_KEY_PASSWORD` instead. With
+none of them set the build still works, but falls back to the default debug key and warns that it did.
+
+Back the keystore up, and to build on another machine **copy the keystore file** rather than re-running
+the command — a second run produces a different key, which breaks the signature match between the apps
+and prevents upgrading anything already installed with the first one.
 
 ## Tech Stack
 
