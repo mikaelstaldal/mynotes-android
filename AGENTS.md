@@ -96,6 +96,31 @@ Markdown dialect, so this app is at feature parity with the web UI by constructi
 - Icons: the renderer inlines every icon it knows as themed `<svg>`, so `/api/v1/icons/…` requests
   only escape for a name the vendored kit lacks — those render broken until the kit is re-synced.
 
+## Sharing a note
+
+The note view's share button offers the note as **Markdown** (its own source) or as **HTML** — a
+standalone document, the app's counterpart to the web UI's "Download HTML"
+(`../mynotes/web/ts/util/export.ts`). Both are written to `cacheDir/shared/<uuid>/<slug>.<ext>` and
+handed out through `FileProvider` as `ACTION_SEND`; each share wipes the directory first, so a stale
+grant cannot be replayed against a newer note.
+
+`ui/note/NoteHtmlExport.kt` builds the HTML. Nothing about the Markdown dialect is re-implemented
+for it — it drives the same vendored render kit the screen does, in a *throwaway, off-screen*
+WebView (`renderKitWebView` + `RenderKitWebViewClient`, shared with `NoteRendererWebView`):
+
+- Off-screen, not the visible WebView, so the export does not depend on what is currently on screen
+  and renders under the kit's canonical palette rather than the Material colours the note view
+  pushes in. The view is measured and laid out by hand, giving the page a viewport for Mermaid to
+  measure in.
+- The kit's `render()` resolves only once diagrams are drawn, so the rendered fragment is collected
+  in its continuation and handed back over a `@JavascriptInterface` bridge added to that WebView
+  alone. A render that never settles hits a 30 s timeout and is reported, not hung.
+- "Standalone" means the file needs neither the server nor this app: the kit's own `note.css` is
+  inlined (only the page frame and the print rules are written in Kotlin, so styling cannot drift
+  from the kit), the theme is baked into `data-theme` on `<html>`, and every image the app can
+  resolve becomes a `data:` URI via `ArtifactRepository.rewriteImageSrcToDataUris`. An image that
+  cannot be resolved stays a URL and renders broken — as in the web export.
+
 ## Notes provider (integration with sibling apps)
 
 `provider/NotesProvider.kt` exports this device's notes, read-only, to other apps —

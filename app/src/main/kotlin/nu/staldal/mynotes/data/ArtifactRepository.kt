@@ -212,12 +212,14 @@ class ArtifactRepository(
     }
 
     /**
-     * Rewrites every `<img src="...">` in sanitized note HTML (local-artifact:// placeholder or
-     * remote artifact URL) to a `data:` URI carrying the resolved bytes, so the WebView never
-     * needs network access or app credentials to display an image. An image that fails to
-     * resolve (e.g. offline and not yet cached) is left as-is and renders as a broken image.
+     * Rewrites every `<img src="...">` in sanitized note HTML to a `data:` URI carrying the
+     * resolved bytes, so the document stands alone: no network access and no app credentials are
+     * needed to display its images. [refFor] maps a rendered `src` to a reference
+     * [resolveImage] understands, or null for one this app cannot resolve; such an image — and one
+     * that fails to resolve (e.g. offline and not yet cached) — is left as-is and renders broken,
+     * matching the web UI's HTML export.
      */
-    suspend fun rewriteImageSrcToDataUris(html: String): String {
+    suspend fun rewriteImageSrcToDataUris(html: String, refFor: (String) -> String?): String {
         val matches = IMG_SRC_ATTR.findAll(html).toList()
         if (matches.isEmpty()) return html
         val sb = StringBuilder()
@@ -225,7 +227,7 @@ class ArtifactRepository(
         for (match in matches) {
             val (prefix, src, suffix) = match.destructured
             sb.append(html, lastEnd, match.range.first)
-            val resolved = resolveImage(src)
+            val resolved = refFor(src)?.let { resolveImage(it) }
             if (resolved != null) {
                 val base64 = Base64.encodeToString(resolved.bytes, Base64.NO_WRAP)
                 sb.append(prefix).append("data:${resolved.contentType};base64,$base64").append(suffix)

@@ -42,7 +42,7 @@ import java.io.ByteArrayInputStream
 private const val ASSET_HOST = "appassets.androidplatform.net"
 
 /** The render kit's host page. Its relative imports resolve under /assets/renderer/. */
-private const val RENDERER_URL = "https://$ASSET_HOST/assets/renderer/render/index.html"
+internal const val RENDERER_URL = "https://$ASSET_HOST/assets/renderer/render/index.html"
 
 /**
  * Root-relative path the note Markdown's `local-artifact://<id>` references are rewritten to before
@@ -104,19 +104,10 @@ fun NoteRendererWebView(
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
-            WebView(ctx).apply {
-                settings.allowFileAccess = false
-                settings.allowContentAccess = false
-                // The renderer is JavaScript; unlike the previous Kotlin-rendered document there is
-                // no no-JS mode. The page's own Content-Security-Policy plus the request allow-list
-                // below keep it to app assets and locally-resolved images.
-                settings.javaScriptEnabled = true
-                // Keep target="_blank" links (the renderer marks external links so) coming through
-                // shouldOverrideUrlLoading rather than trying to open a second window.
-                settings.setSupportMultipleWindows(false)
-                webViewClient = NoteWebViewClient(ctx.applicationContext, artifactRepository, onNavigateToNote, onNavigateToTag)
-                loadUrl(RENDERER_URL)
-            }
+            renderKitWebView(
+                ctx,
+                NoteWebViewClient(ctx.applicationContext, artifactRepository, onNavigateToNote, onNavigateToTag),
+            ).apply { loadUrl(RENDERER_URL) }
         },
         update = { webView ->
             val client = webView.webViewClient as NoteWebViewClient
@@ -159,37 +150,45 @@ private fun renderScript(
 private fun Color.toCssHex(): String = String.format("#%06X", 0xFFFFFF and toArgb())
 
 /**
- * Serves the render kit and the note's images, and routes taps.
+ * A WebView configured to host the render kit, with [client] serving it. The caller loads
+ * [RENDERER_URL] — after any [WebView.addJavascriptInterface], which only takes effect for pages
+ * loaded afterwards. Shared by the on-screen note view and the HTML export (see NoteHtmlExport.kt),
+ * so both run the kit under the same settings and the same request allow-list.
+ */
+internal fun renderKitWebView(context: android.content.Context, client: RenderKitWebViewClient): WebView =
+    WebView(context).apply {
+        settings.allowFileAccess = false
+        settings.allowContentAccess = false
+        // The renderer is JavaScript; unlike the previous Kotlin-rendered document there is
+        // no no-JS mode. The page's own Content-Security-Policy plus the request allow-list
+        // below keep it to app assets and locally-resolved images.
+        settings.javaScriptEnabled = true
+        // Keep target="_blank" links (the renderer marks external links so) coming through
+        // shouldOverrideUrlLoading rather than trying to open a second window.
+        settings.setSupportMultipleWindows(false)
+        webViewClient = client
+    }
+
+/**
+ * Serves the render kit and the note's images to a WebView hosting the kit.
  *
  * [shouldInterceptRequest] is an **allow-list**: only the kit's own asset files and image references
- * the app can resolve locally are answered; everything else is blocked. So viewing a note never
+ * the app can resolve locally are answered; everything else is blocked. So rendering a note never
  * produces an unauthenticated network request, and a note embedding a third-party image cannot phone
  * home — the same posture the app had when it rendered notes itself.
+ *
+ * Navigation is blocked outright; [NoteWebViewClient] overrides that to route taps in the note view.
  */
-private class NoteWebViewClient(
+internal open class RenderKitWebViewClient(
     context: android.content.Context,
     private val artifactRepository: ArtifactRepository,
-    private val onNavigateToNote: (String) -> Unit,
-    private val onNavigateToTag: (String) -> Unit,
 ) : WebViewClient() {
 
     private val assetLoader = WebViewAssetLoader.Builder()
         .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(context))
         .build()
 
-    /** The script to push once the page is ready; also re-pushed after a reload. */
-    var pending: String? = null
-
-    /** Whether the host page has finished loading, so evaluateJavascript will not be dropped. */
-    var loaded: Boolean = false
-        private set
-
-    override fun onPageFinished(view: WebView, url: String) {
-        loaded = true
-        pending?.let { view.evaluateJavascript(it, null) }
-    }
-
-    override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+    final override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
         val uri = request.url
         val path = uri.path ?: return blockedResponse()
 
@@ -211,6 +210,29 @@ private class NoteWebViewClient(
             mapOf("Cache-Control" to "no-store"),
             ByteArrayInputStream(resolved.bytes),
         )
+    }
+
+    override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = true
+}
+
+/** Adds tap routing and the content push to [RenderKitWebViewClient], for the on-screen note view. */
+private class NoteWebViewClient(
+    context: android.content.Context,
+    artifactRepository: ArtifactRepository,
+    private val onNavigateToNote: (String) -> Unit,
+    private val onNavigateToTag: (String) -> Unit,
+) : RenderKitWebViewClient(context, artifactRepository) {
+
+    /** The script to push once the page is ready; also re-pushed after a reload. */
+    var pending: String? = null
+
+    /** Whether the host page has finished loading, so evaluateJavascript will not be dropped. */
+    var loaded: Boolean = false
+        private set
+
+    override fun onPageFinished(view: WebView, url: String) {
+        loaded = true
+        pending?.let { view.evaluateJavascript(it, null) }
     }
 
     /**
