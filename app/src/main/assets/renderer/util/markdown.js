@@ -76,8 +76,10 @@ md.renderer.rules.emoji = (tokens, idx) => tokens[idx].content;
 // its <li>/<ul>/<ol> gain the GitHub-compatible task-list classes for styling.
 // Implemented as a core rule over the token stream (the same approach as
 // markdown-it-task-lists) rather than a plugin, so it stays self-contained and
-// npm-free. Checkboxes are always disabled: the read view is render-only, so a
-// task-list checkbox is a status marker, not an interactive control.
+// npm-free. A checkbox is a status marker, not an interactive control, so it is
+// disabled — except under renderNote's `interactiveTasks` (see RenderOptions),
+// where the web UI turns a click into an unsaved edit and each checkbox instead
+// carries the source line its marker sits on.
 const TASK_MARKER_RE = /^\[[ xX]\] /;
 function taskListItemClass(token, cls) {
     const idx = token.attrIndex('class');
@@ -104,6 +106,7 @@ function parentListToken(tokens, itemOpen) {
 }
 md.core.ruler.after('inline', 'task_lists', (state) => {
     const tokens = state.tokens;
+    const interactive = state.env?.interactiveTasks === true;
     for (let i = 2; i < tokens.length; i++) {
         const inline = tokens[i];
         if (inline.type !== 'inline' ||
@@ -113,9 +116,19 @@ md.core.ruler.after('inline', 'task_lists', (state) => {
             continue;
         }
         const checked = inline.content.charCodeAt(1) !== 0x20; // '[x]'/'[X]' vs '[ ]'
+        // The 0-based source line the item's marker sits on — what a click has to
+        // flip in the Markdown (util/tasks.ts). Taken from the paragraph holding the
+        // marker, not from the list item: an item whose content starts on the line
+        // after its bullet ("-\n  [ ] todo") begins a line earlier than its marker
+        // does. The map is absolute in the (newline-normalized) source, so a task
+        // nested in a list or a blockquote maps back just as well.
+        const line = interactive ? tokens[i - 1].map?.[0] ?? -1 : -1;
+        // Interactive checkboxes are left enabled — a disabled control dispatches no
+        // click at all, so there would be nothing to act on.
+        const modeAttr = line >= 0 ? ` data-task-line="${line}"` : ' disabled';
         const box = new state.Token('html_inline', '', 0);
         box.content =
-            `<input class="task-list-item-checkbox" type="checkbox" disabled${checked ? ' checked' : ''}>`;
+            `<input class="task-list-item-checkbox" type="checkbox"${modeAttr}${checked ? ' checked' : ''}>`;
         // Prepend the checkbox and drop the "[ ]"/"[x]" marker (3 chars) from both
         // the flattened content and the leading text token.
         inline.children.unshift(box);
@@ -832,6 +845,10 @@ DOMPurify.addHook('uponSanitizeElement', (node, data) => {
         el.parentNode?.removeChild(el);
     }
 });
+// True only while renderNote() is rendering with `interactiveTasks`. DOMPurify's
+// hooks are global and cannot see markdown-it's env, so this bridges the two for
+// the duration of that (synchronous) call.
+let interactiveTasks = false;
 // Open external links in a new tab; keep internal links in the same tab.
 // Also force task-list checkboxes to stay non-interactive (read-only view).
 DOMPurify.addHook('afterSanitizeAttributes', (node) => {
@@ -843,7 +860,18 @@ DOMPurify.addHook('afterSanitizeAttributes', (node) => {
         }
     }
     else if (node.tagName === 'INPUT') {
-        node.setAttribute('disabled', '');
+        // The sole exception to the read-only rule: an interactive-mode task-list
+        // checkbox, recognised by the source line the task_lists rule tagged it
+        // with. A plain <input> from a note's embedded HTML carries none and so
+        // stays disabled, as it is in every other mode. (Embedded HTML that copies
+        // the attribute would be enabled too — harmless: what a click does is
+        // decided by re-reading the Markdown at that line, see util/tasks.ts.)
+        if (interactiveTasks && node.hasAttribute('data-task-line')) {
+            node.removeAttribute('disabled');
+        }
+        else {
+            node.setAttribute('disabled', '');
+        }
     }
 });
 // A stored artifact is referenced from note content by the app-defined
@@ -886,8 +914,15 @@ DOMPurify.addHook('uponSanitizeAttribute', (node, data) => {
         data.keepAttr = false;
     }
 });
-export function renderNote(markdown) {
-    return DOMPurify.sanitize(md.render(markdown));
+export function renderNote(markdown, opts = {}) {
+    const env = { interactiveTasks: opts.interactiveTasks === true };
+    interactiveTasks = env.interactiveTasks;
+    try {
+        return DOMPurify.sanitize(md.render(markdown, env));
+    }
+    finally {
+        interactiveTasks = false;
+    }
 }
 // Run an already-rendered HTML fragment back through the same DOMPurify gate.
 // Used by the HTML export after it splices inlined artifact markup (base64 data:
