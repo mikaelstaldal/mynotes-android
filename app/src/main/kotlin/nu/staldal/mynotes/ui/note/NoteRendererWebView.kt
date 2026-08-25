@@ -3,12 +3,15 @@ package nu.staldal.mynotes.ui.note
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
+import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -32,7 +35,8 @@ import java.io.ByteArrayInputStream
  *  - **in**: Markdown and the theme are pushed through the page's JS API with [WebView.evaluateJavascript].
  *    Arguments are JSON-quoted, so note content is never spliced into HTML or into JS syntax; the
  *    kit's DOMPurify gate remains the only path from note content to the DOM.
- *  - **out**: taps surface through [WebViewClient.shouldOverrideUrlLoading] (see [NoteWebViewClient]).
+ *  - **out**: taps on a link surface through [WebViewClient.shouldOverrideUrlLoading] (see
+ *    [NoteWebViewClient]); a tap anywhere else surfaces through [NoteTapBridge].
  *
  * Everything the page loads is served from app assets or the local artifact cache — see
  * [NoteWebViewClient.shouldInterceptRequest], which is an allow-list.
@@ -86,6 +90,68 @@ internal fun artifactRefFor(path: String): String? {
     return null
 }
 
+/** Name [NoteTapBridge] is exposed under inside the render kit's page. */
+private const val TAP_BRIDGE = "MyNotesTap"
+
+/**
+ * How long a tap on the note is held before it counts as one, so a double tap (to zoom, or to
+ * select a word) is not also read as a tap on the note. Chromium reports the second tap as a
+ * `dblclick` after both `click`s, so the window has to outlast its own double-tap detection.
+ */
+private const val DOUBLE_TAP_MS = 350
+
+/**
+ * Reports a tap on the note that did not land on a link, so the note view can open the editor.
+ *
+ * The classification is made in the page rather than from [WebView.HitTestResult]: the DOM knows
+ * exactly what was tapped, while the hit test is computed asynchronously after ACTION_DOWN and so
+ * can still describe the previous tap — which would open the editor on top of the note a wikilink
+ * had just navigated to. A tap on a link is left entirely to
+ * [NoteWebViewClient.shouldOverrideUrlLoading], and reported immediately rather than held for
+ * [DOUBLE_TAP_MS], so following a link stays as responsive as it was.
+ *
+ * Guarded by a marker on the page, so evaluating it twice against the same document (a second
+ * `onPageFinished` for one load) does not leave two listeners behind. A new document starts without
+ * the marker and is armed again.
+ */
+private val TAP_SCRIPT = """
+    (function () {
+      if (window.__myNotesTapArmed) return;
+      window.__myNotesTapArmed = true;
+      var pending = null;
+      function cancel() {
+        if (pending !== null) {
+          clearTimeout(pending);
+          pending = null;
+        }
+      }
+      document.addEventListener("click", function (e) {
+        cancel();
+        var target = e.target;
+        if (target && typeof target.closest === "function" && target.closest("a")) return;
+        pending = setTimeout(function () {
+          pending = null;
+          $TAP_BRIDGE.onTap();
+        }, $DOUBLE_TAP_MS);
+      });
+      document.addEventListener("dblclick", cancel);
+    })();
+""".trimIndent()
+
+/**
+ * Hands a tap on the note back to the note view. Exposed to the WebView showing the note, which
+ * loads the app's own asset page under a CSP that permits no script but the kit's own; note content
+ * reaches the DOM sanitized and cannot call this. Its one capability is opening the editor for the
+ * note already on screen.
+ */
+private class NoteTapBridge(private val webView: WebView, private val onTapped: () -> Unit) {
+    /** Called on the WebView's JavaScript thread, so the callback is posted to the main thread. */
+    @JavascriptInterface
+    fun onTap() {
+        webView.post { onTapped() }
+    }
+}
+
 @Composable
 fun NoteRendererWebView(
     markdown: String,
@@ -97,17 +163,28 @@ fun NoteRendererWebView(
     onNavigateToNote: (String) -> Unit,
     onNavigateToTag: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
 ) {
     // Pushed to the page once it has loaded, and on every later change.
     val script = renderScript(markdown, dark, background, onBackground, linkColor)
 
+    // The WebView is created once, so the tap handler reads the latest callback rather than the one
+    // that happened to be current when it was built.
+    val currentOnClick by rememberUpdatedState(onClick)
+
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
-            renderKitWebView(
+            val webView = renderKitWebView(
                 ctx,
                 NoteWebViewClient(ctx.applicationContext, artifactRepository, onNavigateToNote, onNavigateToTag),
-            ).apply { loadUrl(RENDERER_URL) }
+            )
+            // A tap in the rendered note that is not on a link invokes [onClick]; the page reports
+            // it through this bridge (see TAP_SCRIPT). Added before loadUrl: a JavaScript interface
+            // only reaches pages loaded after it.
+            webView.addJavascriptInterface(NoteTapBridge(webView) { currentOnClick?.invoke() }, TAP_BRIDGE)
+            webView.loadUrl(RENDERER_URL)
+            webView
         },
         update = { webView ->
             val client = webView.webViewClient as NoteWebViewClient
@@ -232,6 +309,9 @@ private class NoteWebViewClient(
 
     override fun onPageFinished(view: WebView, url: String) {
         loaded = true
+        // Re-armed on every load, since the listener lives in the page, not in the WebView;
+        // TAP_SCRIPT itself is idempotent within one document.
+        view.evaluateJavascript(TAP_SCRIPT, null)
         pending?.let { view.evaluateJavascript(it, null) }
     }
 

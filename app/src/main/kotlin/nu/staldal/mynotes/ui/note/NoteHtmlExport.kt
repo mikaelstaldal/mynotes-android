@@ -129,7 +129,8 @@ private suspend fun renderFragment(
     val webView = renderKitWebView(context, ExportWebViewClient(context.applicationContext, artifactRepository, loaded))
     try {
         // Before loadUrl: a JavaScript interface is only injected into pages loaded after it is
-        // added. It is added to this throwaway WebView alone, never to the one showing the note.
+        // added. This one is added to the throwaway export WebView alone — the WebView showing the
+        // note carries its own, unrelated bridge (see NoteRendererWebView).
         webView.addJavascriptInterface(ExportBridge(fragment), EXPORT_BRIDGE)
         webView.measure(
             View.MeasureSpec.makeMeasureSpec(EXPORT_VIEWPORT_WIDTH, View.MeasureSpec.EXACTLY),

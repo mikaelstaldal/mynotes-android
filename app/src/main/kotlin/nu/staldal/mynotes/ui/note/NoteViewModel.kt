@@ -44,7 +44,24 @@ data class NoteFormState(
     val isSaving: Boolean = false,
     val isSaved: Boolean = false,
     val error: String? = null,
-)
+    /** The note as loaded into the form, so [isDirty] can tell edits from the untouched original. */
+    val loadedTitle: String = "",
+    val loadedContent: String = "",
+    val loadedTagSlugs: Set<String> = emptySet(),
+) {
+    /**
+     * Whether the form differs from what was loaded — an empty form for a new note, the stored note
+     * when editing one. Saving is offered only while this holds, so an unchanged note cannot be
+     * given a pointless new version (and, offline, a pending change to replay).
+     *
+     * Tags compare as a set: re-adding a tag that was removed restores the original note even
+     * though [tags] now lists it in a different order.
+     */
+    val isDirty: Boolean
+        get() = title != loadedTitle ||
+            content != loadedContent ||
+            tags.mapTo(mutableSetOf()) { it.slug } != loadedTagSlugs
+}
 
 class NoteViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = UserPreferences(application)
@@ -150,7 +167,16 @@ class NoteViewModel(application: Application) : AndroidViewModel(application) {
                 val note = repository.getNote(slug)
                 if (note != null) {
                     _formState.update {
-                        it.copy(slug = note.slug, title = note.title, content = note.content, tags = note.tags, isLoading = false)
+                        it.copy(
+                            slug = note.slug,
+                            title = note.title,
+                            content = note.content,
+                            tags = note.tags,
+                            isLoading = false,
+                            loadedTitle = note.title,
+                            loadedContent = note.content,
+                            loadedTagSlugs = note.tags.mapTo(mutableSetOf()) { tag -> tag.slug },
+                        )
                     }
                 } else {
                     _formState.update { it.copy(isLoading = false, error = "Note not found") }

@@ -95,7 +95,8 @@ fun NoteFormScreen(
                     IconButton(onClick = { imagePickerLauncher.launch("image/*") }) {
                         Icon(Icons.Default.Image, contentDescription = "Insert image")
                     }
-                    TextButton(onClick = { viewModel.saveNote() }, enabled = !state.isSaving) {
+                    // Nothing to save until the form differs from the note it was loaded from.
+                    TextButton(onClick = { viewModel.saveNote() }, enabled = !state.isSaving && state.isDirty) {
                         Text("Save")
                     }
                 },

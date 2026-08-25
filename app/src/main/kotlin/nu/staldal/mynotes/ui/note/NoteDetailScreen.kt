@@ -3,6 +3,8 @@ package nu.staldal.mynotes.ui.note
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -139,10 +141,21 @@ fun NoteDetailScreen(
                 }
             }
             else -> {
+                // Tapping the note opens the editor, the same as the toolbar's Edit button. The
+                // rendered body is a WebView, which consumes touch events itself, so it reports its
+                // own taps through NoteRendererWebView's onClick; this covers the title, timestamps
+                // and tags around it. No indication: a ripple across the whole note reads as the
+                // note being a button, which it is not.
+                val openEditor = { if (!state.isDeleting) onNavigateToEdit(slug) }
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(padding)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = openEditor,
+                        )
                         .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
@@ -187,6 +200,7 @@ fun NoteDetailScreen(
                         onNavigateToNote = onNavigateToNote,
                         onNavigateToTag = onNavigateToTag,
                         modifier = Modifier.fillMaxSize().weight(1f),
+                        onClick = openEditor,
                     )
                 }
             }

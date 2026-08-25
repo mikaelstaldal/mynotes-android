@@ -82,7 +82,14 @@ Markdown dialect, so this app is at feature parity with the web UI by constructi
   styling from the kit's `note.css`.
 - **Out:** taps arrive at `shouldOverrideUrlLoading`. Wikilinks are the same root-relative
   `/notes/<slug>` / `/tags/<slug>` URLs the web UI emits (no more `mynotes://` scheme) and navigate
-  in-app; http(s)/mailto open externally; anything else is blocked.
+  in-app; http(s)/mailto open externally; anything else is blocked. A tap that is *not* on a link
+  opens the editor (the same as the toolbar's Edit button). The WebView consumes touch events, so
+  that tap comes back out of the page: a `click` listener injected on load (`TAP_SCRIPT`) ignores
+  anything inside an `<a>` and calls a small `@JavascriptInterface` bridge (`NoteTapBridge`). The
+  DOM is asked rather than `WebView.hitTestResult`, which is computed asynchronously after
+  ACTION_DOWN and can still describe the previous tap. A non-link tap is held for the double-tap
+  window and dropped on `dblclick`, so double-tapping to zoom or select still works; a link tap is
+  not held.
 - **Requests:** `shouldInterceptRequest` is an *allow-list* — the kit's own asset files, plus image
   references resolved locally through `ArtifactRepository` (`artifactRefFor`). Everything else gets a
   403, so viewing a note makes no unauthenticated network request and a note embedding a third-party
