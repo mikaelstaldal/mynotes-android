@@ -9,11 +9,11 @@ data class ConflictEntity(
     val localTitle: String,
     val localContent: String,
     val localTags: List<TagEntity>,
-    val localBaseVersion: Int,
+    val localBaseEtag: String,
     val serverTitle: String,
     val serverContent: String,
     val serverTags: List<TagEntity>,
-    val serverVersion: Int,
+    val serverEtag: String,
     val serverUpdatedAt: String,
     val detectedAt: Long = System.currentTimeMillis(),
 )

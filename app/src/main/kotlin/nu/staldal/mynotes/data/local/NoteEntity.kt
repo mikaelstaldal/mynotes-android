@@ -11,7 +11,7 @@ data class NoteEntity(
     val excerpt: String,
     val createdAt: String,
     val updatedAt: String,
-    val version: Int,
+    val etag: String,
     val hasFullContent: Boolean,
     val isPendingDelete: Boolean = false,
     val tags: List<TagEntity> = emptyList(),

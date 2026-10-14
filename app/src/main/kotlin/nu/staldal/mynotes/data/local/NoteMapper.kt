@@ -15,7 +15,7 @@ fun Note.toEntity(hasFullContent: Boolean = true): NoteEntity = NoteEntity(
     excerpt = "",
     createdAt = createdAt,
     updatedAt = updatedAt,
-    version = version,
+    etag = timestampEtag(updatedAt),
     hasFullContent = hasFullContent,
     tags = tags.map { it.toEntity() },
 )
@@ -32,13 +32,13 @@ fun NoteSummary.toEntity(): NoteEntity = NoteEntity(
     excerpt = excerpt,
     createdAt = createdAt,
     updatedAt = updatedAt,
-    version = version,
+    etag = timestampEtag(updatedAt),
     hasFullContent = false,
     tags = tags.map { it.toEntity() },
 )
 
 fun NoteEntity.mergeContentFrom(existing: NoteEntity?): NoteEntity =
-    if (existing != null && existing.hasFullContent && existing.version == version) {
+    if (existing != null && existing.hasFullContent && existing.etag == etag) {
         copy(content = existing.content, hasFullContent = true)
     } else {
         this
@@ -56,3 +56,10 @@ fun NoteEntity.toUpdateRequest(): UpdateNoteRequest = UpdateNoteRequest(
     content = content,
     tags = tags.map { it.slug },
 )
+
+/** The API serializes updated_at in UTC with exactly millisecond precision. */
+fun timestampEtag(updatedAt: String): String = "\"$updatedAt\""
+
+/** A proxy may weaken or rewrite the header; the API defines the body timestamp as canonical. */
+fun responseEtag(header: String?, updatedAt: String): String =
+    timestampEtag(updatedAt).let { canonical -> header?.takeIf { it == canonical } ?: canonical }

@@ -13,6 +13,8 @@ import nu.staldal.mynotes.data.local.PendingChangeStatus
 import nu.staldal.mynotes.data.local.TagEntity
 import nu.staldal.mynotes.data.local.mergeContentFrom
 import nu.staldal.mynotes.data.local.toCreateRequest
+import nu.staldal.mynotes.data.local.responseEtag
+import nu.staldal.mynotes.data.local.timestampEtag
 import nu.staldal.mynotes.data.local.toEntity
 import nu.staldal.mynotes.data.local.toUpdateRequest
 import nu.staldal.mynotes.util.NoteDateUtils
@@ -93,8 +95,8 @@ class NoteRepository(
         val response = api.getNote(slug)
         if (response.isSuccessful) {
             val note = response.body()!!
-            val version = etagVersion(response.headers()["Etag"]) ?: note.version
-            noteDao.upsert(note.toEntity(hasFullContent = true).copy(version = version))
+            val etag = responseEtag(response.headers()["Etag"], note.updatedAt)
+            noteDao.upsert(note.toEntity(hasFullContent = true).copy(etag = etag))
         }
     }
 
@@ -116,7 +118,7 @@ class NoteRepository(
     // --- Mutations (write local + queue) -------------------------------
 
     suspend fun createNote(title: String, content: String, tags: List<TagEntity> = emptyList()): String {
-        val existingSlugs = noteDao.getSlugVersionIndex().map { it.slug }.toSet()
+        val existingSlugs = noteDao.getSlugEtagIndex().map { it.slug }.toSet()
         var slug = SlugGenerator.slugify(title)
         var suffix = 2
         while (slug in existingSlugs) {
@@ -133,12 +135,12 @@ class NoteRepository(
                 excerpt = "",
                 createdAt = now,
                 updatedAt = now,
-                version = 0,
+                etag = "",
                 hasFullContent = true,
                 tags = tags,
             )
         )
-        pendingChangeDao.insert(PendingChange(slug = slug, changeType = ChangeType.CREATE, baseVersion = 0))
+        pendingChangeDao.insert(PendingChange(slug = slug, changeType = ChangeType.CREATE, baseEtag = ""))
         return slug
     }
 
@@ -152,11 +154,11 @@ class NoteRepository(
         )
         noteDao.upsert(updated)
 
-        // If this note was never synced (version == 0), the pending CREATE already carries the latest state.
-        if (existing.version != 0) {
+        // If this note was never synced (etag is empty), the pending CREATE already carries the latest state.
+        if (existing.etag.isNotEmpty()) {
             pendingChangeDao.deleteNonDeleteBySlug(slug)
             pendingChangeDao.insert(
-                PendingChange(slug = slug, changeType = ChangeType.UPDATE, baseVersion = existing.version)
+                PendingChange(slug = slug, changeType = ChangeType.UPDATE, baseEtag = existing.etag)
             )
         }
     }
@@ -165,7 +167,7 @@ class NoteRepository(
         val existing = noteDao.getBySlug(slug) ?: return
         // Drop the note's locally cached images; they outlive the note otherwise.
         artifactRepository.deleteArtifactsForNote(slug)
-        if (existing.version == 0) {
+        if (existing.etag.isEmpty()) {
             // Never synced — nothing to tell the server.
             pendingChangeDao.deleteBySlug(slug)
             noteDao.deleteBySlug(slug)
@@ -173,7 +175,7 @@ class NoteRepository(
             noteDao.markPendingDelete(slug)
             pendingChangeDao.deleteNonDeleteBySlug(slug)
             pendingChangeDao.insert(
-                PendingChange(slug = slug, changeType = ChangeType.DELETE, baseVersion = existing.version)
+                PendingChange(slug = slug, changeType = ChangeType.DELETE, baseEtag = existing.etag)
             )
         }
     }
@@ -181,15 +183,15 @@ class NoteRepository(
     // --- Sync -----------------------------------------------------------
 
     /**
-     * Pages through GET /notes, diffing (slug, version) against the local cache. There is no
+     * Pages through GET /notes, diffing (slug, etag) against the local cache. There is no
      * delta/"since" endpoint, so a full listing pass is the only way to detect remote changes
-     * and deletes. Full content is fetched only for slugs that are new or version-changed.
+     * and deletes. Full content is fetched only for slugs that are new or etag-changed.
      * Slugs with a pending local change are skipped entirely so an unsynced local edit is never
      * clobbered by a refresh.
      */
     suspend fun refreshNotes() {
         val api = apiProvider() ?: return
-        val localIndex = noteDao.getSlugVersionIndex().associate { it.slug to it.version }
+        val localIndex = noteDao.getSlugEtagIndex().associate { it.slug to it.etag }
         val pendingSlugs = pendingChangeDao.getAllChanges().map { it.slug }.toSet()
         val seenSlugs = mutableSetOf<String>()
         val changedSlugs = mutableListOf<String>()
@@ -206,8 +208,8 @@ class NoteRepository(
                 seenSlugs += summary.slug
                 if (summary.slug in pendingSlugs) continue
 
-                val localVersion = localIndex[summary.slug]
-                if (localVersion == null || localVersion != summary.version) {
+                val localEtag = localIndex[summary.slug]
+                if (localEtag == null || localEtag != timestampEtag(summary.updatedAt)) {
                     changedSlugs += summary.slug
                 }
                 val existing = noteDao.getBySlug(summary.slug)
@@ -220,8 +222,8 @@ class NoteRepository(
             val noteResponse = api.getNote(slug)
             if (!noteResponse.isSuccessful) continue
             val note = noteResponse.body()!!
-            val version = etagVersion(noteResponse.headers()["Etag"]) ?: note.version
-            noteDao.upsert(note.toEntity(hasFullContent = true).copy(version = version))
+            val etag = responseEtag(noteResponse.headers()["Etag"], note.updatedAt)
+            noteDao.upsert(note.toEntity(hasFullContent = true).copy(etag = etag))
         }
 
         val staleSlugs = localIndex.keys - seenSlugs - pendingSlugs
@@ -274,7 +276,9 @@ class NoteRepository(
         when {
             response.isSuccessful -> {
                 val created = response.body()!!
-                noteDao.upsert(created.toEntity(hasFullContent = true))
+                noteDao.upsert(created.toEntity(hasFullContent = true).copy(
+                    etag = responseEtag(response.headers()["Etag"], created.updatedAt),
+                ))
                 pendingChangeDao.delete(change)
             }
             response.code() == 409 -> {
@@ -289,7 +293,10 @@ class NoteRepository(
 
                 if (retryResponse.isSuccessful) {
                     noteDao.deleteBySlug(entity.slug)
-                    noteDao.upsert(retryResponse.body()!!.toEntity(hasFullContent = true))
+                    val created = retryResponse.body()!!
+                    noteDao.upsert(created.toEntity(hasFullContent = true).copy(
+                        etag = responseEtag(retryResponse.headers()["Etag"], created.updatedAt),
+                    ))
                     pendingChangeDao.delete(change)
                     notifications += "Note renamed from \"${entity.slug}\" to \"$renamedSlug\" (slug was already taken)"
                 } else {
@@ -303,13 +310,13 @@ class NoteRepository(
     private suspend fun syncUpdate(api: DefaultApi, change: PendingChange, notifications: MutableList<String>) {
         val entity = noteDao.getBySlug(change.slug) ?: run { pendingChangeDao.delete(change); return }
         val rewrittenContent = artifactRepository.uploadPendingArtifactsAndRewrite(entity.content, baseUrlProvider())
-        val ifMatch = "\"${change.baseVersion}\""
+        val ifMatch = change.baseEtag
 
         val response = api.updateNote(change.slug, entity.copy(content = rewrittenContent).toUpdateRequest(), ifMatch)
         when {
             response.isSuccessful -> {
-                val version = etagVersion(response.headers()["Etag"]) ?: response.body()!!.version
-                noteDao.upsert(response.body()!!.toEntity(hasFullContent = true).copy(version = version))
+                val etag = responseEtag(response.headers()["Etag"], response.body()!!.updatedAt)
+                noteDao.upsert(response.body()!!.toEntity(hasFullContent = true).copy(etag = etag))
                 pendingChangeDao.delete(change)
             }
             response.code() == 404 -> {
@@ -321,18 +328,18 @@ class NoteRepository(
                 val serverResponse = api.getNote(change.slug)
                 if (!serverResponse.isSuccessful) throw Exception("Unable to fetch server note for conflict: ${serverResponse.code()}")
                 val server = serverResponse.body()!!
-                val serverVersion = etagVersion(serverResponse.headers()["Etag"]) ?: server.version
+                val serverEtag = responseEtag(serverResponse.headers()["Etag"], server.updatedAt)
                 conflictDao.upsert(
                     ConflictEntity(
                         slug = change.slug,
                         localTitle = entity.title,
                         localContent = rewrittenContent,
                         localTags = entity.tags,
-                        localBaseVersion = change.baseVersion,
+                        localBaseEtag = change.baseEtag,
                         serverTitle = server.title,
                         serverContent = server.content,
                         serverTags = server.tags.map { it.toEntity() },
-                        serverVersion = serverVersion,
+                        serverEtag = serverEtag,
                         serverUpdatedAt = server.updatedAt,
                     )
                 )
@@ -365,13 +372,13 @@ class NoteRepository(
                         title = conflict.localTitle,
                         content = conflict.localContent,
                         tags = conflict.localTags,
-                        version = conflict.serverVersion,
+                        etag = conflict.serverEtag,
                     )
                 )
             }
             if (conflictChange != null) pendingChangeDao.delete(conflictChange)
             pendingChangeDao.insert(
-                PendingChange(slug = slug, changeType = ChangeType.UPDATE, baseVersion = conflict.serverVersion)
+                PendingChange(slug = slug, changeType = ChangeType.UPDATE, baseEtag = conflict.serverEtag)
             )
         } else {
             noteDao.upsert(
@@ -382,7 +389,7 @@ class NoteRepository(
                     excerpt = "",
                     createdAt = conflict.serverUpdatedAt,
                     updatedAt = conflict.serverUpdatedAt,
-                    version = conflict.serverVersion,
+                    etag = conflict.serverEtag,
                     hasFullContent = true,
                     tags = conflict.serverTags,
                 )
@@ -392,6 +399,4 @@ class NoteRepository(
         conflictDao.deleteBySlug(slug)
     }
 
-    private fun etagVersion(etag: String?): Int? =
-        etag?.trim('"')?.toIntOrNull()
 }

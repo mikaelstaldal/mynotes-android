@@ -52,11 +52,11 @@ Native Android app (Kotlin, Jetpack Compose) that consumes the MyNotes REST API 
 **Key design decisions:**
 - Single-activity architecture with Compose Navigation
 - Notes are keyed by `slug` (client-assignable, mirrors the server's slugify algorithm) — no server-assigned numeric ID, so no temp-ID remapping is needed for offline-created notes
-- Optimistic concurrency via `version`/`Etag`/`If-Match`: a 412 conflict during sync is never silently resolved — it's surfaced to the user via the Conflict screens
+- Optimistic concurrency via quoted millisecond `updated_at` ETags/`If-Match`: a 412 conflict during sync is never silently resolved — it's surfaced to the user via the Conflict screens
 - `RetrofitClient` is a singleton that rebuilds the OkHttp/Retrofit instance when server URL or credentials change
 - ViewModels use `AndroidViewModel` to access application context for Room/DataStore; no dependency injection framework
 - Offline-first: all reads/writes go through Room; `NoteRepository` queues local mutations as `PendingChange` rows and `SyncWorker` replays them against the API
-- There is no delta/"since" sync endpoint — `refreshNotes()` pages through `GET /notes` and diffs `(slug, version)` against the local cache, fetching full content only for changed notes
+- There is no delta/"since" sync endpoint — `refreshNotes()` pages through `GET /notes` and diffs `(slug, ETag)` against the local cache, fetching full content only for changed notes
 - Images embedded in note Markdown are content-addressed artifacts; offline-attached images are cached locally and uploaded (with content rewritten to the real URL) before the owning note's create/update syncs
 - **Markdown is not rendered in Kotlin.** The dialect (`../mynotes/markdown-spec.md`) is large — CommonMark + GFM subset, `[[…]]` wikilinks, `[!name]` inline Lucide icons, `>*`/`>-`/`>+` boxes and `[!alias]` callouts, `:shortcode:` emoji, `$…$` AsciiMath → MathML, ` ```mermaid ` diagrams — and every part of it is a client render-time transform. This app used to re-implement all of it on commonmark-java (down to a hand-port of the `asciimath2ml` JS library) and keep it in step with the web client by hand. It now embeds the web client's actual pipeline instead: see **Note rendering** below.
 

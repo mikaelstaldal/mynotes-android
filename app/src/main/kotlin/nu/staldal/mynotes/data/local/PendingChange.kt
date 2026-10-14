@@ -16,7 +16,7 @@ data class PendingChange(
     @PrimaryKey(autoGenerate = true) val changeId: Long = 0,
     val slug: String,
     val changeType: ChangeType,
-    val baseVersion: Int,
+    val baseEtag: String,
     val timestamp: Long = System.currentTimeMillis(),
     val status: PendingChangeStatus = PendingChangeStatus.PENDING,
 )

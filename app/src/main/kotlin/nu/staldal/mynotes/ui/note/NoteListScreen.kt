@@ -297,18 +297,12 @@ private fun NoteListItem(note: NoteEntity, onClick: () -> Unit) {
                 }
             }
         }
-        TooltipBox(
-            positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
-            tooltip = { PlainTooltip { Text("Version ${note.version}") } },
-            state = rememberTooltipState(),
-        ) {
-            Text(
-                text = "created ${NoteDateUtils.formatDisplayDateTime(note.createdAt)} · " +
-                    "updated ${NoteDateUtils.formatDisplayDateTime(note.updatedAt)}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        Text(
+            text = "created ${NoteDateUtils.formatDisplayDateTime(note.createdAt)} · " +
+                "updated ${NoteDateUtils.formatDisplayDateTime(note.updatedAt)}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
     HorizontalDivider()
 }

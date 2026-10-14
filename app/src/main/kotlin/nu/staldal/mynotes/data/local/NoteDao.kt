@@ -3,7 +3,7 @@ package nu.staldal.mynotes.data.local
 import androidx.room.*
 import kotlinx.coroutines.flow.Flow
 
-data class SlugVersion(val slug: String, val version: Int)
+data class SlugEtag(val slug: String, val etag: String)
 
 @Dao
 interface NoteDao {
@@ -46,6 +46,6 @@ interface NoteDao {
     @Query("UPDATE notes SET isPendingDelete = 1 WHERE slug = :slug")
     suspend fun markPendingDelete(slug: String)
 
-    @Query("SELECT slug, version FROM notes WHERE isPendingDelete = 0")
-    suspend fun getSlugVersionIndex(): List<SlugVersion>
+    @Query("SELECT slug, etag FROM notes WHERE isPendingDelete = 0")
+    suspend fun getSlugEtagIndex(): List<SlugEtag>
 }

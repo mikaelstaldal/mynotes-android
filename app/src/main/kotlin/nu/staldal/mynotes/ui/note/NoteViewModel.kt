@@ -25,7 +25,6 @@ data class NoteDetailState(
     val content: String = "",
     val createdAt: String = "",
     val updatedAt: String = "",
-    val version: Int = 0,
     val tags: List<TagEntity> = emptyList(),
     val isLoading: Boolean = false,
     val isDeleting: Boolean = false,
@@ -129,7 +128,6 @@ class NoteViewModel(application: Application) : AndroidViewModel(application) {
                             content = note.content,
                             createdAt = note.createdAt,
                             updatedAt = note.updatedAt,
-                            version = note.version,
                             tags = note.tags,
                             isLoading = false,
                         )
