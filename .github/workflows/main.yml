@@ -1,0 +1,43 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mynotes-android
+    steps:
+      - name: Check out Android app
+        uses: actions/checkout@v5
+        with:
+          path: mynotes-android
+
+      - name: Check out API specification
+        uses: actions/checkout@v5
+        with:
+          repository: mikaelstaldal/mynotes
+          ref: main
+          path: mynotes
+          sparse-checkout: openapi.yaml
+          sparse-checkout-cone-mode: false
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.3'
+
+      - name: Check and build debug APK
+        run: gradle check assembleDebug
