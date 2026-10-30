@@ -21,7 +21,7 @@ Native Android client for the [MyNotes](https://github.com/mikaelstaldal/mynotes
 ## Requirements
 
 - Android SDK (API 36)
-- Gradle (system install, no wrapper)
+- Gradle 9.8.2 (system install, no wrapper)
 - Min SDK: Android 8.0 (API 26)
 - A running MyNotes server
 

@@ -4,7 +4,6 @@ import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.ksp)
     alias(libs.plugins.openapi.generator)
@@ -107,15 +106,9 @@ android {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
     }
-    kotlinOptions {
-        jvmTarget = "21"
-    }
     buildFeatures {
         compose = true
         buildConfig = true
-    }
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.1"
     }
     packaging {
         resources {
@@ -124,7 +117,7 @@ android {
     }
     sourceSets {
         getByName("main") {
-            java.srcDir("${layout.buildDirectory.get().asFile}/generated/openapi/src/main/kotlin")
+            kotlin.directories.add("${layout.buildDirectory.get().asFile}/generated/openapi/src/main/kotlin")
         }
     }
 }
@@ -160,6 +153,11 @@ tasks.named("openApiGenerate").configure {
 }
 
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    dependsOn("openApiGenerate")
+}
+
+// KSP reads the generated API models before Kotlin compilation.
+tasks.withType<com.google.devtools.ksp.gradle.KspAATask>().configureEach {
     dependsOn("openApiGenerate")
 }
 
