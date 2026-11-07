@@ -1,23 +1,21 @@
 package nu.staldal.mynotes.ui.note
 
-import android.app.Application
+import android.content.Context
 import android.net.Uri
-import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import nu.staldal.mynotes.MyNotesApplication
-import nu.staldal.mynotes.data.ALLOWED_ARTIFACT_CONTENT_TYPES
-import nu.staldal.mynotes.data.ArtifactRepository
-import nu.staldal.mynotes.data.ConnectivityObserver
-import nu.staldal.mynotes.data.NoteRepository
-import nu.staldal.mynotes.data.api.RetrofitClient
-import nu.staldal.mynotes.data.local.NoteEntity
-import nu.staldal.mynotes.data.local.TagEntity
-import nu.staldal.mynotes.data.preferences.ServerConfig
-import nu.staldal.mynotes.data.preferences.UserPreferences
-import nu.staldal.mynotes.data.sync.SyncWorker
-import nu.staldal.mynotes.util.SlugGenerator
+import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import nu.staldal.mynotes.data.ALLOWED_ARTIFACT_CONTENT_TYPES
+import nu.staldal.mynotes.data.ArtifactRepository
+import nu.staldal.mynotes.data.NoteRepository
+import nu.staldal.mynotes.data.local.NoteEntity
+import nu.staldal.mynotes.data.local.TagEntity
+import nu.staldal.mynotes.data.sync.SyncWorker
+import nu.staldal.mynotes.util.SlugGenerator
 
 data class NoteDetailState(
     val slug: String? = null,
@@ -62,46 +60,19 @@ data class NoteFormState(
             tags.mapTo(mutableSetOf()) { it.slug } != loadedTagSlugs
 }
 
-class NoteViewModel(application: Application) : AndroidViewModel(application) {
-    private val prefs = UserPreferences(application)
-    private val database = (application as MyNotesApplication).database
-
+@HiltViewModel
+class NoteViewModel @Inject constructor(
+    @param:ApplicationContext private val context: Context,
+    private val repository: NoteRepository,
+    val artifactRepository: ArtifactRepository,
+) : ViewModel() {
     private val _detailState = MutableStateFlow(NoteDetailState())
     val detailState: StateFlow<NoteDetailState> = _detailState.asStateFlow()
 
     private val _formState = MutableStateFlow(NoteFormState())
     val formState: StateFlow<NoteFormState> = _formState.asStateFlow()
 
-    private val connectivityObserver = ConnectivityObserver(application)
-
-    private var serverConfig = ServerConfig()
-    private var networkAvailable = true
-
-    /** True when the backend can actually be reached (network up and not in explicit offline mode). */
-    private fun canReachBackend(): Boolean = networkAvailable && !serverConfig.offlineMode
-
-    val artifactRepository = ArtifactRepository(
-        application,
-        database,
-        isOnlineProvider = { canReachBackend() },
-    ) {
-        RetrofitClient.getApiService(serverConfig.baseUrl, serverConfig.username, serverConfig.password)
-    }
-
-    private val repository = NoteRepository(
-        database = database,
-        artifactRepository = artifactRepository,
-        apiProvider = { RetrofitClient.getApiService(serverConfig.baseUrl, serverConfig.username, serverConfig.password) },
-        baseUrlProvider = { serverConfig.baseUrl },
-    )
-
     init {
-        viewModelScope.launch {
-            prefs.serverConfig.collect { serverConfig = it }
-        }
-        viewModelScope.launch {
-            connectivityObserver.isOnline.collect { networkAvailable = it }
-        }
         viewModelScope.launch {
             repository.observeTags().collect { tags ->
                 _formState.update { it.copy(availableTags = tags) }
@@ -147,7 +118,7 @@ class NoteViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 repository.deleteNote(slug)
                 _detailState.update { it.copy(isDeleted = true, isDeleting = false) }
-                SyncWorker.enqueueOneTime(getApplication())
+                SyncWorker.enqueueOneTime(context)
             } catch (e: Exception) {
                 _detailState.update { it.copy(isDeleting = false, error = e.message) }
             }
@@ -247,7 +218,7 @@ class NoteViewModel(application: Application) : AndroidViewModel(application) {
                     repository.updateNote(form.slug, form.title, form.content, form.tags)
                 }
                 _formState.update { it.copy(isSaving = false, isSaved = true) }
-                SyncWorker.enqueueOneTime(getApplication())
+                SyncWorker.enqueueOneTime(context)
             } catch (e: Exception) {
                 _formState.update { it.copy(isSaving = false, error = e.message) }
             }

@@ -1,6 +1,7 @@
 package nu.staldal.mynotes.data
 
 import android.util.Log
+import kotlinx.coroutines.flow.Flow
 import nu.staldal.mynotes.data.api.CreateTagRequest
 import nu.staldal.mynotes.data.api.DefaultApi
 import nu.staldal.mynotes.data.api.Note
@@ -12,14 +13,13 @@ import nu.staldal.mynotes.data.local.PendingChange
 import nu.staldal.mynotes.data.local.PendingChangeStatus
 import nu.staldal.mynotes.data.local.TagEntity
 import nu.staldal.mynotes.data.local.mergeContentFrom
-import nu.staldal.mynotes.data.local.toCreateRequest
 import nu.staldal.mynotes.data.local.responseEtag
 import nu.staldal.mynotes.data.local.timestampEtag
+import nu.staldal.mynotes.data.local.toCreateRequest
 import nu.staldal.mynotes.data.local.toEntity
 import nu.staldal.mynotes.data.local.toUpdateRequest
 import nu.staldal.mynotes.util.NoteDateUtils
 import nu.staldal.mynotes.util.SlugGenerator
-import kotlinx.coroutines.flow.Flow
 import retrofit2.Response
 
 const val LOGTAG = "NoteRepository"
@@ -29,8 +29,8 @@ private const val LIST_PAGE_SIZE = 200
 class NoteRepository(
     database: AppDatabase,
     private val artifactRepository: ArtifactRepository,
-    private val apiProvider: () -> DefaultApi?,
-    private val baseUrlProvider: () -> String,
+    private val apiProvider: suspend () -> DefaultApi?,
+    private val baseUrlProvider: suspend () -> String,
 ) {
     private val noteDao = database.noteDao()
     private val pendingChangeDao = database.pendingChangeDao()

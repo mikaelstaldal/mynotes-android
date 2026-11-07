@@ -4,12 +4,12 @@ import android.content.Context
 import android.net.Uri
 import android.util.Base64
 import android.util.Log
+import java.io.File
+import java.util.UUID
 import nu.staldal.mynotes.data.api.DefaultApi
 import nu.staldal.mynotes.data.api.FileRequestBodyConverterFactory
 import nu.staldal.mynotes.data.local.AppDatabase
 import nu.staldal.mynotes.data.local.ArtifactEntity
-import java.io.File
-import java.util.UUID
 
 /** An image reference resolved to its raw bytes and content type. */
 data class ResolvedImage(val bytes: ByteArray, val contentType: String)
@@ -32,8 +32,8 @@ private const val ARTIFACT_LOGTAG = "ArtifactRepository"
 class ArtifactRepository(
     private val context: Context,
     database: AppDatabase,
-    private val isOnlineProvider: () -> Boolean = { true },
-    private val apiProvider: () -> DefaultApi?,
+    private val isOnlineProvider: suspend () -> Boolean = { true },
+    private val apiProvider: suspend () -> DefaultApi?,
 ) {
     private val artifactDao = database.artifactDao()
 

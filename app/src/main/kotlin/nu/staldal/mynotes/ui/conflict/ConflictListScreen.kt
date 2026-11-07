@@ -11,14 +11,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConflictListScreen(
     onNavigateBack: () -> Unit,
     onNavigateToConflict: (String) -> Unit,
-    viewModel: ConflictViewModel = viewModel(),
+    viewModel: ConflictViewModel = hiltViewModel(),
 ) {
     val conflicts by viewModel.conflicts.collectAsState()
 

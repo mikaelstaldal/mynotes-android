@@ -7,10 +7,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.mutableStateOf
+import dagger.hilt.android.AndroidEntryPoint
 import nu.staldal.mynotes.provider.NotesContract
 import nu.staldal.mynotes.ui.navigation.NavGraph
 import nu.staldal.mynotes.ui.theme.MyNotesTheme
 
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
     /**

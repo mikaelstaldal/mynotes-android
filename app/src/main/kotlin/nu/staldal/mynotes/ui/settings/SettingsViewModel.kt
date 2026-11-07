@@ -1,17 +1,20 @@
 package nu.staldal.mynotes.ui.settings
 
-import android.app.Application
-import androidx.lifecycle.AndroidViewModel
+import android.content.Context
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import nu.staldal.mynotes.MyNotesApplication
-import nu.staldal.mynotes.data.api.RetrofitClient
-import nu.staldal.mynotes.data.preferences.UserPreferences
-import nu.staldal.mynotes.data.sync.SyncWorker
+import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.File
+import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
+import nu.staldal.mynotes.data.api.RetrofitClient
+import nu.staldal.mynotes.data.local.AppDatabase
+import nu.staldal.mynotes.data.preferences.UserPreferences
+import nu.staldal.mynotes.data.sync.SyncWorker
 
 data class SettingsUiState(
     val baseUrl: String = "",
@@ -23,9 +26,13 @@ data class SettingsUiState(
     val isSigningOut: Boolean = false,
 )
 
-class SettingsViewModel(application: Application) : AndroidViewModel(application) {
-    private val prefs = UserPreferences(application)
-    private val database = (application as MyNotesApplication).database
+@HiltViewModel
+class SettingsViewModel @Inject constructor(
+    @param:ApplicationContext private val context: Context,
+    private val prefs: UserPreferences,
+    private val database: AppDatabase,
+    private val client: RetrofitClient,
+) : ViewModel() {
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
@@ -60,7 +67,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun signOut(onSignedOut: () -> Unit) {
         viewModelScope.launch {
             _uiState.update { it.copy(isSigningOut = true) }
-            val app = getApplication<Application>()
+            val app = context
             SyncWorker.cancelAll(app)
             prefs.clearAll()
             withContext(Dispatchers.IO) {
@@ -68,7 +75,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 File(app.filesDir, "artifacts").deleteRecursively()
                 File(app.cacheDir, "shared").deleteRecursively()
             }
-            RetrofitClient.reset()
+            client.reset()
             _uiState.value = SettingsUiState()
             onSignedOut()
         }
@@ -79,7 +86,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             _uiState.update { it.copy(isTesting = true, testResult = null) }
             try {
                 val state = _uiState.value
-                val api = RetrofitClient.getApiService(state.baseUrl, state.username, state.password)
+                val api = client.getApiService(state.baseUrl, state.username, state.password)
                 if (api == null) {
                     _uiState.update { it.copy(isTesting = false, testResult = "Invalid server URL") }
                     return@launch

@@ -5,10 +5,14 @@ import android.content.SharedPreferences
 import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.IOException
 import java.security.GeneralSecurityException
+import javax.inject.Inject
+import javax.inject.Singleton
 
-class CredentialStore(context: Context) {
+@Singleton
+class CredentialStore @Inject constructor(@ApplicationContext context: Context) {
     private val prefs = openOrRecreate(context)
 
     val baseUrl: String?

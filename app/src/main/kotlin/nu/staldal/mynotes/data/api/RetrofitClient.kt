@@ -1,5 +1,7 @@
 package nu.staldal.mynotes.data.api
 
+import javax.inject.Inject
+import javax.inject.Singleton
 import nu.staldal.mynotes.BuildConfig
 import okhttp3.Credentials
 import okhttp3.OkHttpClient
@@ -7,12 +9,14 @@ import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 
-object RetrofitClient {
+@Singleton
+class RetrofitClient @Inject constructor() {
     private var currentBaseUrl: String? = null
     private var currentUsername: String? = null
     private var currentPassword: String? = null
     private var apiService: DefaultApi? = null
 
+    @Synchronized
     fun getApiService(baseUrl: String, username: String, password: String): DefaultApi? {
         if (baseUrl.isBlank()) return null
 
@@ -57,6 +61,7 @@ object RetrofitClient {
     }
 
     /** Discards the cached client and credentials so the next call rebuilds from scratch. */
+    @Synchronized
     fun reset() {
         apiService = null
         currentBaseUrl = null

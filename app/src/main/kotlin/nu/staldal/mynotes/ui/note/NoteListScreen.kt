@@ -22,7 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import nu.staldal.mynotes.data.local.NoteEntity
 import nu.staldal.mynotes.data.local.TagEntity
 import nu.staldal.mynotes.util.NoteDateUtils
@@ -35,7 +35,7 @@ fun NoteListScreen(
     onNavigateToNewNote: () -> Unit,
     onNavigateToConflicts: () -> Unit,
     initialTag: String? = null,
-    viewModel: NoteListViewModel = viewModel(),
+    viewModel: NoteListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
     var showSearch by remember { mutableStateOf(false) }

@@ -20,7 +20,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import nu.staldal.mynotes.data.local.TagEntity
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -28,7 +28,7 @@ import nu.staldal.mynotes.data.local.TagEntity
 fun NoteFormScreen(
     slug: String?,
     onNavigateBack: () -> Unit,
-    viewModel: NoteViewModel = viewModel(),
+    viewModel: NoteViewModel = hiltViewModel(),
 ) {
     val state by viewModel.formState.collectAsState()
     val context = LocalContext.current

@@ -54,7 +54,9 @@ Native Android app (Kotlin, Jetpack Compose) that consumes the MyNotes REST API 
 - Notes are keyed by `slug` (client-assignable, mirrors the server's slugify algorithm) — no server-assigned numeric ID, so no temp-ID remapping is needed for offline-created notes
 - Optimistic concurrency via quoted millisecond `updated_at` ETags/`If-Match`: a 412 conflict during sync is never silently resolved — it's surfaced to the user via the Conflict screens
 - `RetrofitClient` is a singleton that rebuilds the OkHttp/Retrofit instance when server URL or credentials change
-- ViewModels use `AndroidViewModel` to access application context for Room/DataStore; no dependency injection framework
+- Hilt owns the application dependency graph: singleton Room/preferences/repositories in `di/DataModule`,
+  constructor-injected `@HiltViewModel` ViewModels, and `@HiltWorker` background sync.
+  `NotesProvider` resolves the same graph lazily through a Hilt entry point.
 - Offline-first: all reads/writes go through Room; `NoteRepository` queues local mutations as `PendingChange` rows and `SyncWorker` replays them against the API
 - There is no delta/"since" sync endpoint — `refreshNotes()` pages through `GET /notes` and diffs `(slug, ETag)` against the local cache, fetching full content only for changed notes
 - Images embedded in note Markdown are content-addressed artifacts; offline-attached images are cached locally and uploaded (with content rewritten to the real URL) before the owning note's create/update syncs

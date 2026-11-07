@@ -3,9 +3,12 @@ package nu.staldal.mynotes.data.preferences
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
-import nu.staldal.mynotes.dataStore
+import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import nu.staldal.mynotes.dataStore
 
 data class ServerConfig(
     val baseUrl: String = "",
@@ -16,8 +19,11 @@ data class ServerConfig(
     val isConfigured: Boolean get() = baseUrl.isNotBlank() || offlineMode
 }
 
-class UserPreferences(private val context: Context) {
-    private val credentialStore = CredentialStore(context)
+@Singleton
+class UserPreferences @Inject constructor(
+    @param:ApplicationContext private val context: Context,
+    private val credentialStore: CredentialStore,
+) {
 
     companion object {
         val OFFLINE_MODE = booleanPreferencesKey("offline_mode")

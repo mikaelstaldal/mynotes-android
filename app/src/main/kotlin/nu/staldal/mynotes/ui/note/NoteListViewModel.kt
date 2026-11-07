@@ -1,21 +1,17 @@
 package nu.staldal.mynotes.ui.note
 
-import android.app.Application
-import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import nu.staldal.mynotes.MyNotesApplication
-import nu.staldal.mynotes.data.ArtifactRepository
-import nu.staldal.mynotes.data.ConnectivityObserver
-import nu.staldal.mynotes.data.NoteRepository
-import nu.staldal.mynotes.data.api.RetrofitClient
-import nu.staldal.mynotes.data.local.NoteEntity
-import nu.staldal.mynotes.data.local.TagEntity
-import nu.staldal.mynotes.data.preferences.ServerConfig
-import nu.staldal.mynotes.data.preferences.UserPreferences
-import nu.staldal.mynotes.data.sync.SyncWorker
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import nu.staldal.mynotes.data.ConnectivityObserver
+import nu.staldal.mynotes.data.NoteRepository
+import nu.staldal.mynotes.data.local.NoteEntity
+import nu.staldal.mynotes.data.local.TagEntity
+import nu.staldal.mynotes.data.preferences.UserPreferences
 
 data class NoteListUiState(
     val notes: List<NoteEntity> = emptyList(),
@@ -37,26 +33,16 @@ data class NoteListUiState(
 fun List<NoteEntity>.filterByTag(tag: String?): List<NoteEntity> =
     if (tag == null) this else filter { note -> note.tags.any { it.slug == tag } }
 
-class NoteListViewModel(application: Application) : AndroidViewModel(application) {
-    private val prefs = UserPreferences(application)
-    private val database = (application as MyNotesApplication).database
-    private val connectivityObserver = ConnectivityObserver(application)
+@HiltViewModel
+class NoteListViewModel @Inject constructor(
+    private val prefs: UserPreferences,
+    private val repository: NoteRepository,
+    private val connectivityObserver: ConnectivityObserver,
+) : ViewModel() {
     private val _uiState = MutableStateFlow(NoteListUiState())
     val uiState: StateFlow<NoteListUiState> = _uiState.asStateFlow()
 
-    private var serverConfig = ServerConfig()
     private var searchJob: Job? = null
-
-    private val artifactRepository = ArtifactRepository(application, database) {
-        RetrofitClient.getApiService(serverConfig.baseUrl, serverConfig.username, serverConfig.password)
-    }
-
-    private val repository = NoteRepository(
-        database = database,
-        artifactRepository = artifactRepository,
-        apiProvider = { RetrofitClient.getApiService(serverConfig.baseUrl, serverConfig.username, serverConfig.password) },
-        baseUrlProvider = { serverConfig.baseUrl },
-    )
 
     init {
         viewModelScope.launch {
@@ -95,7 +81,6 @@ class NoteListViewModel(application: Application) : AndroidViewModel(application
 
         viewModelScope.launch {
             prefs.serverConfig.collect { config ->
-                serverConfig = config
                 _uiState.update { it.copy(isConfigured = config.isConfigured, isOfflineMode = config.offlineMode) }
                 if (config.isConfigured && !config.offlineMode) {
                     refresh()

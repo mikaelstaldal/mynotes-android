@@ -6,22 +6,20 @@ import android.content.Context
 import android.content.UriMatcher
 import android.database.Cursor
 import android.database.MatrixCursor
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.util.Log
-import kotlinx.coroutines.flow.first
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
+import java.io.FileNotFoundException
 import kotlinx.coroutines.runBlocking
 import nu.staldal.mynotes.data.ArtifactRepository
 import nu.staldal.mynotes.data.NoteRepository
 import nu.staldal.mynotes.data.ResolvedImage
-import nu.staldal.mynotes.data.api.RetrofitClient
 import nu.staldal.mynotes.data.local.AppDatabase
 import nu.staldal.mynotes.data.local.NoteEntity
-import nu.staldal.mynotes.data.preferences.ServerConfig
-import nu.staldal.mynotes.data.preferences.UserPreferences
-import java.io.FileNotFoundException
 
 /**
  * Read-only access to this device's notes for other apps — see [NotesContract] for the interface.
@@ -78,41 +76,20 @@ class NotesProvider : ContentProvider() {
     private val appContext: Context
         get() = checkNotNull(context) { "provider used before onCreate" }.applicationContext
 
-    private val database: AppDatabase by lazy { AppDatabase.getInstance(appContext) }
+    // Providers are created before Application.onCreate; resolve Hilt lazily on the first query.
+    @EntryPoint
+    @InstallIn(SingletonComponent::class)
+    interface Dependencies {
+        fun database(): AppDatabase
+        fun notes(): NoteRepository
+        fun artifacts(): ArtifactRepository
+    }
 
+    private val dependencies: Dependencies by lazy {
+        EntryPointAccessors.fromApplication(appContext, Dependencies::class.java)
+    }
+    private val database get() = dependencies.database()
     private val noteDao by lazy { database.noteDao() }
-
-    /**
-     * The server configuration, re-read per call rather than cached: the provider process outlives
-     * individual calls and the user can reconfigure the app at any time.
-     */
-    private fun serverConfig(): ServerConfig =
-        runBlocking { UserPreferences(appContext).serverConfig.first() }
-
-    private fun isOnline(): Boolean {
-        val cm = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val capabilities = cm.getNetworkCapabilities(cm.activeNetwork ?: return false) ?: return false
-        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-    }
-
-    /**
-     * Repositories wired exactly as the app's own view models wire them, so a read through the
-     * provider behaves like a read in the app: cache first, server only when configured and online.
-     */
-    private fun artifactRepository(config: ServerConfig) = ArtifactRepository(
-        appContext,
-        database,
-        isOnlineProvider = { isOnline() && !config.offlineMode },
-    ) {
-        RetrofitClient.getApiService(config.baseUrl, config.username, config.password)
-    }
-
-    private fun noteRepository(config: ServerConfig) = NoteRepository(
-        database = database,
-        artifactRepository = artifactRepository(config),
-        apiProvider = { RetrofitClient.getApiService(config.baseUrl, config.username, config.password) },
-        baseUrlProvider = { config.baseUrl },
-    )
 
     /**
      * The image most recently resolved, so `getType` and `openFile` on the same URI — the normal
@@ -177,7 +154,7 @@ class NotesProvider : ContentProvider() {
         if (slug.isNullOrEmpty()) return null
         return runBlocking {
             try {
-                noteRepository(serverConfig()).ensureFullContent(slug)
+                dependencies.notes().ensureFullContent(slug)
             } catch (e: Exception) {
                 Log.w(LOGTAG, "Could not fetch full content for $slug", e)
             }
@@ -228,7 +205,7 @@ class NotesProvider : ContentProvider() {
         lastImage?.let { (cachedRef, cachedImage) -> if (cachedRef == ref) return cachedImage }
         val image = runBlocking {
             try {
-                artifactRepository(serverConfig()).resolveImage(ref)
+                dependencies.artifacts().resolveImage(ref)
             } catch (e: Exception) {
                 Log.w(LOGTAG, "Could not resolve $ref", e)
                 null

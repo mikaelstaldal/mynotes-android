@@ -2,38 +2,29 @@ package nu.staldal.mynotes.data.sync
 
 import android.content.Context
 import android.util.Log
+import androidx.hilt.work.HiltWorker
 import androidx.work.*
-import nu.staldal.mynotes.BuildConfig
-import nu.staldal.mynotes.data.ArtifactRepository
-import nu.staldal.mynotes.data.NoteRepository
-import nu.staldal.mynotes.data.api.RetrofitClient
-import nu.staldal.mynotes.data.local.AppDatabase
-import nu.staldal.mynotes.data.preferences.UserPreferences
-import kotlinx.coroutines.flow.first
+import dagger.assisted.Assisted
+import dagger.assisted.AssistedInject
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.flow.first
+import nu.staldal.mynotes.BuildConfig
+import nu.staldal.mynotes.data.NoteRepository
+import nu.staldal.mynotes.data.preferences.UserPreferences
 
 private const val LOGTAG = "SyncWorker"
 
-class SyncWorker(
-    context: Context,
-    workerParams: WorkerParameters,
+@HiltWorker
+class SyncWorker @AssistedInject constructor(
+    @Assisted context: Context,
+    @Assisted workerParams: WorkerParameters,
+    private val prefs: UserPreferences,
+    private val repository: NoteRepository,
 ) : CoroutineWorker(context, workerParams) {
 
     override suspend fun doWork(): Result {
-        val prefs = UserPreferences(applicationContext)
         val config = prefs.serverConfig.first()
         if (!config.isConfigured) return Result.success()
-
-        val database = AppDatabase.getInstance(applicationContext)
-        val artifactRepository = ArtifactRepository(applicationContext, database) {
-            RetrofitClient.getApiService(config.baseUrl, config.username, config.password)
-        }
-        val repository = NoteRepository(
-            database = database,
-            artifactRepository = artifactRepository,
-            apiProvider = { RetrofitClient.getApiService(config.baseUrl, config.username, config.password) },
-            baseUrlProvider = { config.baseUrl },
-        )
 
         return try {
             val notifications = repository.syncPendingChanges()

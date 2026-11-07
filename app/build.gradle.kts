@@ -3,6 +3,7 @@
 import java.util.Properties
 
 plugins {
+    alias(libs.plugins.hilt)
     alias(libs.plugins.android.application)
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.ksp)
@@ -162,6 +163,11 @@ tasks.withType<com.google.devtools.ksp.gradle.KspAATask>().configureEach {
 }
 
 dependencies {
+    implementation(libs.hilt.android)
+    ksp(libs.hilt.android.compiler)
+    implementation(libs.hilt.navigation.compose)
+    implementation(libs.hilt.work)
+    ksp(libs.hilt.compiler)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)

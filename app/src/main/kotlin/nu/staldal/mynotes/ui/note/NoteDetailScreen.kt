@@ -19,14 +19,14 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.hilt.navigation.compose.hiltViewModel
+import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import nu.staldal.mynotes.util.NoteDateUtils
 import nu.staldal.mynotes.util.SlugGenerator
-import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -36,7 +36,7 @@ fun NoteDetailScreen(
     onNavigateToEdit: (String) -> Unit,
     onNavigateToNote: (String) -> Unit,
     onNavigateToTag: (String) -> Unit,
-    viewModel: NoteViewModel = viewModel(),
+    viewModel: NoteViewModel = hiltViewModel(),
 ) {
     val state by viewModel.detailState.collectAsState()
     var showDeleteDialog by remember { mutableStateOf(false) }
